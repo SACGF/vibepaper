@@ -372,6 +372,16 @@ To apply journal-specific formatting (e.g. double line spacing, continuous line 
 
 vibepaper will use it automatically if it exists at the configured path.
 
+### PDF output
+
+Pass `--pdf` to produce a PDF alongside each `.docx`:
+
+```bash
+vibepaper --pdf
+```
+
+The pipeline is: pandoc renders the Markdown sections to a self-contained HTML document (images embedded as data URIs), then [weasyprint](https://weasyprint.org/) converts that HTML to PDF entirely in Python. Citations and bibliography work the same as for Word output.
+
 ---
 
 ## CLI reference
@@ -392,6 +402,7 @@ Output:
   --output-dir DIR      Output directory for .docx files
   --name NAME           Output filename stem
   --combined            Merge supplementary into main document
+  --pdf                 Also produce a PDF alongside each .docx
 
 Flags:
   --verbose, -v         Print detailed progress

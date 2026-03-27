@@ -2,11 +2,17 @@
 
 All notable changes to vibepaper are documented here.
 
+## [0.4.0] — 2026-03-27
+
+### Changed
+
+- **weasyprint is now a default dependency** — `pip install vibepaper` includes PDF support out of the box. The `vibepaper[pdf]` extra is no longer needed.
+
 ## [0.3.0] — 2026-03-27
 
 ### Added
 
-- **`--pdf` flag** — produces a PDF alongside each `.docx` using [weasyprint](https://weasyprint.org/). Pandoc renders the sections to a self-contained HTML document (images embedded as data URIs); weasyprint converts that HTML to PDF entirely in Python. Install the extra with `pip install 'vibepaper[pdf]'`.
+- **`--pdf` flag** — produces a PDF alongside each `.docx` using [weasyprint](https://weasyprint.org/). Pandoc renders the sections to a self-contained HTML document (images embedded as data URIs); weasyprint converts that HTML to PDF entirely in Python.
 
 ## [0.2.0] — 2026-03-27
 

@@ -130,7 +130,7 @@ def _cmd_build(argv):
     )
     parser.add_argument(
         "--pdf", action="store_true",
-        help="Also produce a PDF alongside each .docx (requires weasyprint: pip install 'vibepaper[pdf]').",
+        help="Also produce a PDF alongside each .docx.",
     )
     parser.add_argument(
         "--verbose", "-v", action="store_true",

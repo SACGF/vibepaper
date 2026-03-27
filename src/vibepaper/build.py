@@ -206,15 +206,13 @@ def build_pdf(
     images embedded as data URIs (--embed-resources).  weasyprint then
     converts the HTML string to PDF entirely within Python.
 
-    Requires: pip install 'vibepaper[pdf]'
     """
     try:
         import weasyprint
     except ImportError:
         raise RuntimeError(
             "PDF output requires weasyprint.\n"
-            "  pip install 'vibepaper[pdf]'\n"
-            "  or: pip install weasyprint"
+            "  pip install weasyprint"
         )
 
     html_args = [
