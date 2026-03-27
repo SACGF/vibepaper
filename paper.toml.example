@@ -1,0 +1,35 @@
+# paper.toml — paperbuild configuration
+# Copy this file to your paper project root and edit the sections list.
+
+[paper]
+# Manuscript sections in order (paths relative to this file's directory)
+sections = [
+    "paper/title.md",
+    "paper/abstract.md",
+    "paper/introduction.md",
+    "paper/methods.md",
+    "paper/results.md",
+    "paper/discussion.md",
+    "paper/references.md",
+    "paper/figures.md",
+]
+
+# Supplementary material (built as a separate .docx by default)
+supplementary = ["paper/supplementary.md"]
+
+# Used in output filenames: {name}_{date}.docx
+# Defaults to the project directory name if omitted.
+# name = "my_paper"
+
+# Directory containing 1-row key-facts CSVs (default: output/key_facts)
+# key_facts_dir = "output/key_facts"
+
+# Output directory for .docx files (default: output)
+# output_dir = "output"
+
+# Intermediate build directory (default: build)
+# build_dir = "build"
+
+# Word reference document for journal formatting (double spacing, line numbers).
+# Only used if the file exists; silently skipped otherwise.
+# reference_doc = "paper/reference.docx"
