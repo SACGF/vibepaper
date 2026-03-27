@@ -45,8 +45,8 @@ def main():
         ),
     )
     parser.add_argument(
-        "--key-facts-dir", metavar="DIR",
-        help="Directory of 1-row key-facts CSVs (overrides paper.toml / default).",
+        "--facts-dir", metavar="DIR",
+        help="Directory of 1-row facts CSVs (overrides paper.toml / default).",
     )
 
     # --- Output ---
