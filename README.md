@@ -248,6 +248,67 @@ Directive options:
 
 ---
 
+## Citations
+
+vibepaper supports pandoc's native citation processing. Write citations in your Markdown using `[@citekey]` syntax:
+
+```markdown
+Variant consequences were predicted using VEP [@McLaren2016].
+Variants were called against the MANE Select transcript set [@Morales2022; @Pozo2022].
+```
+
+pandoc resolves these against a BibTeX file and formats them using a CSL style file.
+
+### Setup
+
+1. **Create a `.bib` file** (`paper/references.bib`) with your references in BibTeX format. Most reference managers (Zotero, Mendeley, Papers) can export this directly.
+
+2. **Download a CSL file** for your target journal from [zotero.org/styles](https://www.zotero.org/styles). For Vancouver/numbered style (used by many biomedical journals):
+   ```bash
+   curl -sL "https://www.zotero.org/styles/vancouver" -o paper/vancouver.csl
+   ```
+
+3. **Add both to `paper.toml`:**
+   ```toml
+   bibliography = "paper/references.bib"
+   csl          = "paper/vancouver.csl"
+   ```
+
+4. **Add a references section** to your paper. Include a `{#refs}` div so pandoc places the bibliography there rather than appending at the end:
+   ```markdown
+   # References
+
+   {% raw %}
+   ::: {#refs}
+   :::
+   {% endraw %}
+   ```
+   The `{% raw %}` blocks prevent Jinja2 from interpreting the `{#refs}` syntax — they are stripped during the template pass and do not appear in the output.
+
+### BibTeX entry example
+
+```bibtex
+@article{McLaren2016,
+  author  = {McLaren, William and others},
+  title   = {The {Ensembl} Variant Effect Predictor},
+  journal = {Genome Biology},
+  year    = {2016},
+  volume  = {17},
+  pages   = {122},
+  doi     = {10.1186/s13059-016-0974-4},
+}
+
+@misc{MyDatabase,
+  author = {{My Consortium}},
+  title  = {My Database},
+  year   = {2024},
+  url    = {https://example.org},
+  note   = {Accessed 2024},
+}
+```
+
+---
+
 ## paper.toml reference
 
 ```toml
@@ -287,6 +348,14 @@ build_dir = "build"
 # Only used if the file exists; silently skipped otherwise.
 # Default: "paper/reference.docx"
 reference_doc = "paper/reference.docx"
+
+# BibTeX bibliography file. Enables pandoc --citeproc when present.
+# Use [@citekey] syntax in Markdown to cite.
+bibliography = "paper/references.bib"
+
+# CSL citation style file. Download from zotero.org/styles.
+# Falls back to pandoc's default (Chicago author-date) if omitted.
+csl = "paper/vancouver.csl"
 ```
 
 ### Word reference document
@@ -319,6 +388,9 @@ Output:
   --output-dir DIR      Output directory for .docx files
   --name NAME           Output filename stem
   --combined            Merge supplementary into main document
+
+Flags:
+  --verbose, -v         Print detailed progress
 ```
 
 ---
@@ -337,7 +409,9 @@ my_paper/
 │   ├── references.md
 │   ├── figures.md
 │   ├── supplementary.md
-│   └── reference.docx        ← optional Word formatting template
+│   ├── reference.docx        ← optional Word formatting template
+│   ├── references.bib        ← BibTeX bibliography
+│   └── vancouver.csl         ← CSL citation style
 ├── output/
 │   ├── facts/
 │   │   ├── cohort.csv        ← 1-row: n_patients, n_controls, ...
