@@ -39,7 +39,7 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/PLACEHOLDER/vibepaper"
+Repository = "https://github.com/SACGF/vibepaper"
 
 [project.scripts]
 vibepaper = "vibepaper.cli:main"

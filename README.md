@@ -68,7 +68,7 @@ pip install vibepaper
 ### Installing from source
 
 ```bash
-git clone https://github.com/PLACEHOLDER/vibepaper
+git clone https://github.com/SACGF/vibepaper
 cd vibepaper
 pip install -e .
 ```
