@@ -49,10 +49,12 @@ def load_config(config_path: Path) -> dict:
         "sections":      paper["sections"],
         "supplementary": paper.get("supplementary", []),
         "name":          paper.get("name", config_path.parent.name),
-        "facts_dir": paper.get("facts_dir", "output/facts"),
+        "facts_dir":     paper.get("facts_dir", "output/facts"),
         "output_dir":    paper.get("output_dir", "output"),
         "build_dir":     paper.get("build_dir", "build"),
         "reference_doc": paper.get("reference_doc", "paper/reference.docx"),
+        "bibliography":  paper.get("bibliography", None),
+        "csl":           paper.get("csl", None),
     }
 
 
@@ -62,10 +64,12 @@ def minimal_config(sections: list[str], name: str | None = None) -> dict:
         "sections":      sections,
         "supplementary": [],
         "name":          name or Path.cwd().name,
-        "facts_dir": "output/facts",
+        "facts_dir":     "output/facts",
         "output_dir":    "output",
         "build_dir":     "build",
         "reference_doc": "paper/reference.docx",
+        "bibliography":  None,
+        "csl":           None,
     }
 
 
@@ -142,7 +146,13 @@ def strip_bookmarks(docx: Path):
     tmp.unlink()
 
 
-def pandoc_args(sections: list[str], output: Path, reference_doc: Path | None) -> list[str]:
+def pandoc_args(
+    sections: list[str],
+    output: Path,
+    reference_doc: Path | None,
+    bibliography: Path | None = None,
+    csl: Path | None = None,
+) -> list[str]:
     """Build pandoc command."""
     args = [
         "pandoc",
@@ -156,19 +166,31 @@ def pandoc_args(sections: list[str], output: Path, reference_doc: Path | None) -
         args += ["--reference-doc", str(reference_doc)]
         log.debug("Using reference doc: %s", reference_doc)
     elif reference_doc:
-        print(
-            f"  WARNING: reference_doc {reference_doc} not found; "
-            "output will use default Word formatting.",
-            file=sys.stderr,
-        )
+        log.warning("reference_doc %s not found; output will use default Word formatting.", reference_doc)
+    if bibliography and bibliography.exists():
+        args += ["--bibliography", str(bibliography), "--citeproc"]
+        log.debug("Using bibliography: %s", bibliography)
+    elif bibliography:
+        log.warning("bibliography %s not found; citations will not be resolved.", bibliography)
+    if csl and csl.exists():
+        args += ["--csl", str(csl)]
+        log.debug("Using CSL: %s", csl)
+    elif csl:
+        log.warning("CSL file %s not found; pandoc will use its default citation style.", csl)
     return args
 
 
-def build_docx(sections: list[str], output: Path, reference_doc: Path | None):
+def build_docx(
+    sections: list[str],
+    output: Path,
+    reference_doc: Path | None,
+    bibliography: Path | None = None,
+    csl: Path | None = None,
+):
     """Run pandoc to produce a .docx file."""
     output.parent.mkdir(parents=True, exist_ok=True)
     log.debug("Building %s", output)
-    subprocess.run(pandoc_args(sections, output, reference_doc), check=True)
+    subprocess.run(pandoc_args(sections, output, reference_doc, bibliography, csl), check=True)
 
 
 def run_build(
@@ -196,6 +218,9 @@ def run_build(
 
     reference_doc_path = _resolve(config["reference_doc"], project_root)
     reference_doc = reference_doc_path if reference_doc_path.exists() else None
+
+    bibliography = _resolve(config["bibliography"], project_root) if config.get("bibliography") else None
+    csl = _resolve(config["csl"], project_root) if config.get("csl") else None
 
     all_sections = config["sections"] + config["supplementary"]
 
@@ -236,14 +261,14 @@ def run_build(
     # Main manuscript
     main_sections = config["sections"] + (config["supplementary"] if combined else [])
     main_docx = output_dir / f"{paper_name}_{today}.docx"
-    build_docx(build_paths(main_sections), main_docx, reference_doc)
+    build_docx(build_paths(main_sections), main_docx, reference_doc, bibliography, csl)
     strip_bookmarks(main_docx)
     print(f"Done: {main_docx}")
 
     # Supplementary (separate unless --combined)
     if not combined and config["supplementary"]:
         supp_docx = output_dir / f"{paper_name}_supplementary_{today}.docx"
-        build_docx(build_paths(config["supplementary"]), supp_docx, reference_doc)
+        build_docx(build_paths(config["supplementary"]), supp_docx, reference_doc, bibliography, csl)
         strip_bookmarks(supp_docx)
         print(f"Done: {supp_docx}")
 
