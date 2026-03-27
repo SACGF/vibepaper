@@ -4,6 +4,8 @@
 
 Build scientific papers from Markdown where every number traces back to the analysis that produced it.
 
+**No number in a vibepaper document is typed by hand.** Every figure enters the paper through a structured data file written by your analysis scripts. Rerun the analysis, rebuild the paper — the numbers update everywhere, automatically. This means you can iterate freely on your analysis without worrying the paper has fallen out of date.
+
 ## The problem
 
 Numbers in scientific prose go stale. You finish the analysis, write up the results, and six months later a reviewer asks you to rerun with a corrected dataset. Now you have updated CSVs and a paper full of hardcoded figures: "the mean increased from 4.6 to 9.2", "of the 7,318 variants that lost HIGH impact". Finding every number, checking which is still current, updating without introducing new errors — this is tedious, error-prone, and nearly impossible to review.
