@@ -1,5 +1,7 @@
 # vibepaper
 
+[![PyPi version](https://img.shields.io/pypi/v/vibepaper.svg)](https://pypi.org/project/vibepaper/) [![Python versions](https://img.shields.io/pypi/pyversions/vibepaper.svg)](https://pypi.org/project/[![PyPi version](https://img.shields.io/pypi/v/vibepaper.svg)](https://pypi.org/project/vibepaper/) [![Python versions](https://img.shields.io/pypi/pyversions/vibepaper.svg)](https://pypi.org/project/cdot/)
+
 Build scientific papers from Markdown where every number traces back to the analysis that produced it.
 
 ## The problem
@@ -28,11 +30,11 @@ When you rerun the analysis, you rerun the build. The numbers update everywhere,
 
 ## Installation
 
-```bash
-pip install vibepaper
-```
+**Requirements:** Python ≥ 3.10 and [pandoc](https://pandoc.org/installing.html).
 
-Requires [pandoc](https://pandoc.org/installing.html) as a system dependency:
+### 1. Install pandoc
+
+pandoc converts the rendered Markdown to Word. Install it via your system package manager:
 
 ```bash
 # macOS
@@ -40,7 +42,38 @@ brew install pandoc
 
 # Debian/Ubuntu
 sudo apt-get install pandoc
+
+# Windows (winget)
+winget install JohnMacFarlane.Pandoc
 ```
+
+Verify: `pandoc --version`
+
+### 2. Install vibepaper
+
+```bash
+pip install vibepaper
+```
+
+Verify: `vibepaper --help`
+
+### Installing into a virtual environment (recommended)
+
+```bash
+python -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install vibepaper
+```
+
+### Installing from source
+
+```bash
+git clone https://github.com/PLACEHOLDER/vibepaper
+cd vibepaper
+pip install -e .
+```
+
+The `-e` flag installs in editable mode so changes to the source are reflected immediately.
 
 ---
 
