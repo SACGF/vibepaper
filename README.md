@@ -4,7 +4,7 @@
 
 Build scientific papers from Markdown where every number traces back to the analysis that produced it.
 
-**No number in a vibepaper document is typed by hand.** Every figure enters the paper through a structured data file written by your analysis scripts. Rerun the analysis, rebuild the paper — the numbers update everywhere, automatically. This means you can iterate freely on your analysis without worrying the paper has fallen out of date.
+**No reported result value in a vibepaper document is typed by hand.** Every figure that comes from your analysis enters the paper through a structured data file written by your analysis scripts. Rerun the analysis, rebuild the paper — those values update everywhere, automatically. This means you can iterate freely on your analysis without worrying the paper has fallen out of date.
 
 ## The problem
 
@@ -26,7 +26,7 @@ When you rerun the analysis, you rerun the build. The numbers update everywhere,
 
 1. **Templates express intent; scripts express computation.** No arithmetic in templates. If you need a percentage increase, the analysis script computes and writes it. The template formats it.
 2. **Loud failures over silent omissions.** A missing or renamed CSV column is a build error, not an empty string in the output.
-3. **Every number is traceable.** Any figure in the rendered paper can be grepped back to the template reference and the script that wrote the CSV.
+3. **Every inserted value is traceable.** Any result value in the rendered paper can be grepped back to its template reference and the data file that supplied it.
 
 ---
 
