@@ -40,7 +40,7 @@ def main():
         "--data", metavar="JSON",
         help=(
             "Extra template context as a JSON file path or inline JSON dict. "
-            "Merged on top of key-facts CSVs. "
+            "Merged on top of facts CSVs. "
             "Example: --data '{\"n\": 100}' or --data stats.json"
         ),
     )
@@ -62,9 +62,14 @@ def main():
         "--combined", action="store_true",
         help="Append supplementary into the main document instead of a separate file.",
     )
+    parser.add_argument(
+        "--verbose", "-v", action="store_true",
+        help="Print detailed progress (section rendering, pandoc invocation, etc.).",
+    )
 
     args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    level = logging.DEBUG if args.verbose else logging.WARNING
+    logging.basicConfig(level=level, format="%(message)s")
 
     # --- Determine sections and project_root ---
     if args.sections:

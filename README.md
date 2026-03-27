@@ -176,7 +176,7 @@ Top-level keys become namespaces:
 Cohort: {{ cohort_size }} participants (p = {{ stats.pvalue | dp(3) }}).
 ```
 
-JSON is merged on top of key-facts CSVs. Nested dicts are deep-merged at the namespace level; scalar values override directly.
+JSON is merged on top of facts CSVs. Nested dicts are deep-merged at the namespace level; scalar values override directly.
 
 ---
 
@@ -238,7 +238,7 @@ supplementary = ["paper/supplementary.md"]
 # Default: parent directory name
 name = "my_paper"
 
-# Directory of 1-row key-facts CSVs
+# Directory of 1-row facts CSVs
 # Default: "output/facts"
 facts_dir = "output/facts"
 
@@ -280,7 +280,7 @@ Input (choose one):
 
 Data:
   --data JSON           JSON file path or inline dict for template context
-  --key-facts-dir DIR   Override key-facts CSV directory
+  --facts-dir DIR       Override facts CSV directory
 
 Output:
   --output-dir DIR      Output directory for .docx files

@@ -1,11 +1,12 @@
 """Jinja2 templating pass for paper markdown files.
 
 Replaces {{ namespace.field | filter }} references with values loaded from
-1-row key-facts CSVs in output/key_facts/.  Runs before tables.py so
+1-row facts CSVs in output/facts/.  Runs before tables.py so
 that inline prose values are resolved before table directives are expanded.
 """
 
 import logging
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -13,26 +14,32 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined, UndefinedErro
 
 log = logging.getLogger(__name__)
 
-# Patterns that indicate a render problem in the output file.
-SANITY_PATTERNS = ["nan", "None", "undefined", "{{"]
+# Regexes that indicate a render problem in the output file.
+# Use word boundaries so "nan" doesn't match "annotated", "None" doesn't
+# match prose like "None of the…" — only standalone tokens flag.
+_SANITY_RE = re.compile(
+    r"\bnan\b"            # pandas NaN rendered as "nan"
+    r"|\bundefined\b"     # Jinja undefined leak
+    r"|\{\{"              # unresolved template tag
+)
 
 
-def load_key_facts(key_facts_dir: Path) -> dict:
-    """Load all 1-row CSVs from key_facts_dir into a namespace dict.
+def load_facts(facts_dir: Path) -> dict:
+    """Load all 1-row CSVs from facts_dir into a namespace dict.
 
     Each file 'foo_bar.csv' becomes context['foo_bar'] = {col: value, ...}.
     Raises ValueError if any CSV has more than one data row.
     """
     context = {}
-    for csv_path in sorted(key_facts_dir.glob("*.csv")):
+    for csv_path in sorted(facts_dir.glob("*.csv")):
         df = pd.read_csv(csv_path)
         if len(df) != 1:
             raise ValueError(
-                f"{csv_path}: key-facts CSVs must have exactly 1 row, got {len(df)}"
+                f"{csv_path}: facts CSVs must have exactly 1 row, got {len(df)}"
             )
         namespace = csv_path.stem
         context[namespace] = df.iloc[0].to_dict()
-        log.info("Loaded key facts: %s (%d fields)", namespace, len(context[namespace]))
+        log.debug("Loaded facts: %s (%d fields)", namespace, len(context[namespace]))
     return context
 
 
@@ -89,7 +96,7 @@ def render_file(
     output_path = build_dir / input_path.name
     build_dir.mkdir(parents=True, exist_ok=True)
     output_path.write_text(rendered)
-    log.info("Rendered %s → %s", input_path, output_path)
+    log.debug("Rendered %s → %s", input_path, output_path)
     return output_path
 
 
@@ -98,8 +105,7 @@ def sanity_check(path: Path) -> list:
     warnings = []
     content = path.read_text()
     for i, line in enumerate(content.splitlines(), start=1):
-        for pattern in SANITY_PATTERNS:
-            if pattern in line:
-                warnings.append(f"  {path}:{i}: found '{pattern}'")
-                break  # one warning per line is enough
+        m = _SANITY_RE.search(line)
+        if m:
+            warnings.append(f"  {path}:{i}: found '{m.group()}'")
     return warnings

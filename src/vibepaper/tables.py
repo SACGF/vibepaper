@@ -164,7 +164,7 @@ def process_content(content: str, project_root: Path) -> str:
         options = parse_options(yaml_text)
         df = load_table(csv_path, options)
         table = render_markdown_table(df, options)
-        log.info("Rendered %s (%d rows, %d cols)", rel_path, len(df), len(df.columns))
+        log.debug("Rendered %s (%d rows, %d cols)", rel_path, len(df), len(df.columns))
         return table
 
     return DIRECTIVE_RE.sub(replace_directive, content)
@@ -178,5 +178,5 @@ def process_file(input_path: Path, build_dir: Path, project_root: Path) -> Path:
     output_path = build_dir / input_path.name
     build_dir.mkdir(parents=True, exist_ok=True)
     output_path.write_text(rendered)
-    log.info("Wrote %s", output_path)
+    log.debug("Wrote %s", output_path)
     return output_path

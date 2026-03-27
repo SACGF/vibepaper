@@ -1,6 +1,7 @@
 """Orchestration: Jinja2 pass → table pass → pandoc."""
 
 import json
+import logging
 import re
 import shutil
 import subprocess
@@ -11,12 +12,14 @@ from pathlib import Path
 
 from lxml import etree
 
+log = logging.getLogger(__name__)
+
 try:
     import tomllib
 except ImportError:
     import tomli as tomllib  # type: ignore
 
-from .render import load_key_facts, make_jinja_env, render_file as render_jinja, sanity_check
+from .render import load_facts, make_jinja_env, render_file as render_jinja, sanity_check
 from .tables import process_file as render_tables
 
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -118,7 +121,7 @@ def strip_bookmarks(docx: Path):
     """Remove Word bookmark elements that pandoc inserts for heading anchors.
     These cause warnings when opening in Google Docs / older Word versions.
     """
-    print(f"  Stripping bookmarks from {docx} ...")
+    log.debug("Stripping bookmarks from %s", docx)
     tmp = docx.with_suffix(".tmp.docx")
     shutil.copy(docx, tmp)
 
@@ -151,7 +154,7 @@ def pandoc_args(sections: list[str], output: Path, reference_doc: Path | None) -
     ]
     if reference_doc and reference_doc.exists():
         args += ["--reference-doc", str(reference_doc)]
-        print(f"  Using reference doc: {reference_doc}")
+        log.debug("Using reference doc: %s", reference_doc)
     elif reference_doc:
         print(
             f"  WARNING: reference_doc {reference_doc} not found; "
@@ -164,7 +167,7 @@ def pandoc_args(sections: list[str], output: Path, reference_doc: Path | None) -
 def build_docx(sections: list[str], output: Path, reference_doc: Path | None):
     """Run pandoc to produce a .docx file."""
     output.parent.mkdir(parents=True, exist_ok=True)
-    print(f"Building {output} ...")
+    log.debug("Building %s", output)
     subprocess.run(pandoc_args(sections, output, reference_doc), check=True)
 
 
@@ -179,7 +182,7 @@ def run_build(
 
     All paths are resolved relative to project_root; no os.chdir is used.
 
-    extra_context is merged into the Jinja2 context on top of any key-facts
+    extra_context is merged into the Jinja2 context on top of any facts
     CSVs. Nested dicts are deep-merged at the namespace level; scalar values
     are set directly.
     """
@@ -196,18 +199,14 @@ def run_build(
 
     all_sections = config["sections"] + config["supplementary"]
 
-    print("Checking sections ...")
     _warn_stub_sections(all_sections, project_root)
 
-    # Build Jinja2 context: key-facts CSVs, then merge any extra JSON data
+    # Build Jinja2 context: facts CSVs, then merge any extra JSON data
     context: dict = {}
     if facts_dir.exists():
-        context.update(load_key_facts(facts_dir))
+        context.update(load_facts(facts_dir))
     else:
-        print(
-            f"  NOTE: {facts_dir} not found — template context will be empty.",
-            file=sys.stderr,
-        )
+        log.warning("%s not found — template context will be empty.", facts_dir)
     if extra_context:
         for key, value in extra_context.items():
             if key in context and isinstance(context[key], dict) and isinstance(value, dict):
@@ -217,7 +216,6 @@ def run_build(
 
     jinja_env = make_jinja_env(project_root)
 
-    print("Rendering Jinja2 templates ...")
     jinja_warnings = []
     for section in all_sections:
         section_path = _resolve(section, project_root)
@@ -228,7 +226,6 @@ def run_build(
         for w in jinja_warnings:
             print(w, file=sys.stderr)
 
-    print("Rendering include-csv directives ...")
     for section in all_sections:
         section_name = Path(section).name
         render_tables(build_jinja / section_name, build_paper, project_root)
@@ -263,10 +260,10 @@ def _warn_stub_sections(sections: list[str], project_root: Path):
     for section in sections:
         path = _resolve(section, project_root)
         if not path.exists():
-            print(f"  WARNING: section not found: {path}", file=sys.stderr)
+            log.warning("section not found: %s", path)
             continue
         text = path.read_text()
         stripped = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
         stripped = re.sub(r"^#+.*$", "", stripped, flags=re.MULTILINE)
         if len(stripped.strip()) < threshold:
-            print(f"  WARNING: {path} appears to be a stub", file=sys.stderr)
+            log.warning("%s appears to be a stub", path)
