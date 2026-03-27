@@ -29,7 +29,7 @@ def load_config(config_path: Path) -> dict:
     Optional with defaults:
       paper.supplementary   = []
       paper.name            = parent directory name
-      paper.key_facts_dir   = "output/key_facts"
+      paper.facts_dir   = "output/facts"
       paper.output_dir      = "output"
       paper.build_dir       = "build"
       paper.reference_doc   = "paper/reference.docx"  (only used if file exists)
@@ -46,7 +46,7 @@ def load_config(config_path: Path) -> dict:
         "sections":      paper["sections"],
         "supplementary": paper.get("supplementary", []),
         "name":          paper.get("name", config_path.parent.name),
-        "key_facts_dir": paper.get("key_facts_dir", "output/key_facts"),
+        "facts_dir": paper.get("facts_dir", "output/facts"),
         "output_dir":    paper.get("output_dir", "output"),
         "build_dir":     paper.get("build_dir", "build"),
         "reference_doc": paper.get("reference_doc", "paper/reference.docx"),
@@ -59,7 +59,7 @@ def minimal_config(sections: list[str], name: str | None = None) -> dict:
         "sections":      sections,
         "supplementary": [],
         "name":          name or Path.cwd().name,
-        "key_facts_dir": "output/key_facts",
+        "facts_dir": "output/facts",
         "output_dir":    "output",
         "build_dir":     "build",
         "reference_doc": "paper/reference.docx",
@@ -186,7 +186,7 @@ def run_build(
     today = date.today()
     paper_name = config["name"]
 
-    key_facts_dir = _resolve(config["key_facts_dir"], project_root)
+    facts_dir = _resolve(config["facts_dir"], project_root)
     build_dir     = _resolve(config["build_dir"], project_root)
     build_jinja   = build_dir / "jinja" / "paper"
     build_paper   = build_dir / "paper"
@@ -201,11 +201,11 @@ def run_build(
 
     # Build Jinja2 context: key-facts CSVs, then merge any extra JSON data
     context: dict = {}
-    if key_facts_dir.exists():
-        context.update(load_key_facts(key_facts_dir))
+    if facts_dir.exists():
+        context.update(load_key_facts(facts_dir))
     else:
         print(
-            f"  NOTE: {key_facts_dir} not found — template context will be empty.",
+            f"  NOTE: {facts_dir} not found — template context will be empty.",
             file=sys.stderr,
         )
     if extra_context:

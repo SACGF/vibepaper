@@ -96,8 +96,8 @@ def main():
             config["name"] = args.name
 
     # Apply CLI overrides that work across all modes
-    if args.key_facts_dir:
-        config["key_facts_dir"] = args.key_facts_dir
+    if args.facts_dir:
+        config["facts_dir"] = args.facts_dir
 
     output_dir = (
         Path(args.output_dir).resolve()

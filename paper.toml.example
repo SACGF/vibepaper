@@ -21,8 +21,8 @@ supplementary = ["paper/supplementary.md"]
 # Defaults to the project directory name if omitted.
 # name = "my_paper"
 
-# Directory containing 1-row key-facts CSVs (default: output/key_facts)
-# key_facts_dir = "output/key_facts"
+# Directory containing 1-row facts CSVs (default: output/facts)
+# facts_dir = "output/facts"
 
 # Output directory for .docx files (default: output)
 # output_dir = "output"

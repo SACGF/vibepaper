@@ -133,10 +133,10 @@ Mean transcripts per variant increased {{ vep.mean_fold | fold }} from
 
 ### Key-facts CSVs (primary)
 
-The main data binding mechanism. Analysis scripts write **1-row CSVs** to `output/key_facts/`. The filename stem becomes the template namespace; column names become field names.
+The main data binding mechanism. Analysis scripts write **1-row CSVs** to `output/facts/`. The filename stem becomes the template namespace; column names become field names.
 
 ```
-output/key_facts/
+output/facts/
     transcript_growth.csv      → {{ transcript_growth.v112_count | commas }}
     vep_impact.csv             → {{ vep_impact.giab_mean_v115_full | dp(1) }}
     clinvar_reclassification.csv → {{ clinvar_reclassification.total_variants | commas }}
@@ -239,8 +239,8 @@ supplementary = ["paper/supplementary.md"]
 name = "my_paper"
 
 # Directory of 1-row key-facts CSVs
-# Default: "output/key_facts"
-key_facts_dir = "output/key_facts"
+# Default: "output/facts"
+facts_dir = "output/facts"
 
 # Output directory for .docx files
 # Default: "output"
@@ -306,12 +306,12 @@ my_paper/
 │   ├── supplementary.md
 │   └── reference.docx        ← optional Word formatting template
 ├── output/
-│   ├── key_facts/
+│   ├── facts/
 │   │   ├── cohort.csv        ← 1-row: n_patients, n_controls, ...
 │   │   ├── model_results.csv ← 1-row: auc, pvalue, effect_size, ...
 │   │   └── ...
 │   └── tables/
 │       └── full_results.csv  ← multi-row: used in include-csv directives
 └── scripts/
-    └── run_analysis.py       ← writes to output/key_facts/
+    └── run_analysis.py       ← writes to output/facts/
 ```
