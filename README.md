@@ -2,9 +2,9 @@
 
 ![PyPi version](https://img.shields.io/pypi/v/vibepaper.svg) [![Python versions](https://img.shields.io/pypi/pyversions/vibepaper.svg)](https://pypi.org/project/vibepaper/)
 
-Build scientific papers from Markdown where every number traces back to the analysis that produced it.
+Build scientific papers from Markdown where reported results are pulled directly from analysis outputs.
 
-**No reported result value in a vibepaper document is typed by hand.** Every figure that comes from your analysis enters the paper through a structured data file written by your analysis scripts. Rerun the analysis, rebuild the paper — those values update everywhere, automatically. This means you can iterate freely on your analysis without worrying the paper has fallen out of date.
+**No reported result value in a vibepaper document is typed by hand.** Every result value that comes from your analysis enters the paper through a structured data file written by your analysis scripts. Rerun the analysis, rebuild the paper — those values update everywhere, automatically. This means you can iterate freely on your analysis without worrying the paper has fallen out of date.
 
 ## The problem
 
@@ -26,7 +26,7 @@ When you rerun the analysis, you rerun the build. The numbers update everywhere,
 
 1. **Templates express intent; scripts express computation.** No arithmetic in templates. If you need a percentage increase, the analysis script computes and writes it. The template formats it.
 2. **Loud failures over silent omissions.** A missing or renamed CSV column is a build error, not an empty string in the output.
-3. **Every inserted value is traceable.** Any result value in the rendered paper can be grepped back to its template reference and the data file that supplied it.
+3. **Every inserted value can be traced back to its template reference and source data file.** Nothing is injected silently — if a value is in the paper, there is a `{{ }}` reference in the Markdown and a data file that supplied it.
 
 ---
 
@@ -168,7 +168,7 @@ Mean transcripts per variant increased {{ vep.mean_fold | fold }} from
 
 ### Facts CSVs (primary)
 
-The main data binding mechanism. Analysis scripts write **1-row CSVs** to `output/facts/`. The filename stem becomes the template namespace; column names become field names.
+The main data binding mechanism. Analysis scripts write **1-row CSVs** to `output/facts/`. The filename stem becomes the template namespace; column names become field names. One file per result group keeps each namespace small, explicit, and easy to diff in version control.
 
 ```
 output/facts/
@@ -211,7 +211,15 @@ Top-level keys become namespaces:
 Cohort: {{ cohort_size }} participants (p = {{ stats.pvalue | dp(3) }}).
 ```
 
-JSON values are merged on top of any facts CSVs. Nested dicts are deep-merged at the namespace level; scalar values override directly. Use JSON when you prefer a single structured file over a directory of 1-row CSVs, or when your analysis already produces JSON output.
+JSON values are merged on top of any facts CSVs. Nested dicts are deep-merged at the namespace level; scalar values override directly:
+
+```
+# facts CSV:         stats.pvalue = 0.01, stats.n = 100
+# JSON --data:       {"stats": {"pvalue": 0.03}}
+# result:            stats.pvalue = 0.03, stats.n = 100
+```
+
+Use JSON when you prefer a single structured file over a directory of 1-row CSVs, or when your analysis already produces JSON output.
 
 ---
 
@@ -351,7 +359,7 @@ output_dir = "output"
 build_dir = "build"
 
 # Word reference document for custom formatting (double spacing, line numbers, etc.)
-# Only used if the file exists; silently skipped otherwise.
+# Only used if the file exists; ignored if not present.
 # Default: "paper/reference.docx"
 reference_doc = "paper/reference.docx"
 
@@ -382,7 +390,7 @@ Pass `--pdf` to produce a PDF alongside each `.docx`:
 vibepaper --pdf
 ```
 
-The pipeline is: pandoc renders the Markdown sections to a self-contained HTML document (images embedded as data URIs), then [weasyprint](https://weasyprint.org/) converts that HTML to PDF entirely in Python. Citations and bibliography work the same as for Word output. This works well for typical manuscript content; complex layout requirements (multi-column, precise figure placement, journal-specific PDF templates) may not render as expected.
+The pipeline is: pandoc renders the Markdown sections to a self-contained HTML document (images embedded as data URIs), then [weasyprint](https://weasyprint.org/) converts that HTML to PDF entirely in Python. Citations and bibliography work the same as for Word output. This works well for typical manuscript content; complex layout requirements (multi-column, precise figure placement, journal-specific PDF templates) may not render as expected and is not suitable for journal-specific PDF layout requirements.
 
 ---
 
@@ -458,7 +466,7 @@ my_paper/
 
 ## What vibepaper does not do
 
-These are deliberately out of scope:
+vibepaper keeps manuscripts consistent with analysis outputs; it does not make analyses themselves reproducible. These are deliberately out of scope:
 
 - **Running your analysis scripts** — vibepaper reads their outputs; it does not execute them or manage dependencies between them.
 - **Tracking whether outputs are current** — it trusts whatever is in `output/facts/` at build time. If you rerun a script and forget to rebuild, the paper will use stale data. A Snakemake workflow or similar is the right tool for dependency tracking.
