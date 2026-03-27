@@ -434,3 +434,9 @@ my_paper/
 └── scripts/
     └── run_analysis.py       ← writes to output/facts/
 ```
+
+---
+
+## Migrating an existing paper
+
+`ONBOARDING_PROMPT.md` in this repository is a step-by-step prompt you can paste into a 🤖 LLM agent in any existing paper project. It walks through auditing hardcoded numbers, writing facts CSVs from existing analysis scripts, setting up citations, and verifying the build.
