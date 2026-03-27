@@ -46,3 +46,8 @@ vibepaper = "vibepaper.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/vibepaper"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
