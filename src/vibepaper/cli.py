@@ -3,12 +3,78 @@
 import argparse
 import logging
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from .build import load_config, load_json_data, load_sections_file, minimal_config, run_build
 
 
 def main():
+    # Route subcommands before the main build parser so that positional .md
+    # file arguments are never mistaken for subcommand names.
+    if len(sys.argv) > 1 and sys.argv[1] == "fetch-csl":
+        _cmd_fetch_csl(sys.argv[2:])
+        return
+    _cmd_build(sys.argv[1:])
+
+
+# ---------------------------------------------------------------------------
+# fetch-csl subcommand
+# ---------------------------------------------------------------------------
+
+def _cmd_fetch_csl(argv):
+    parser = argparse.ArgumentParser(
+        prog="vibepaper fetch-csl",
+        description=(
+            "Download a CSL citation style file from zotero.org/styles "
+            "and save it to your paper directory.\n\n"
+            "Example:\n"
+            "  vibepaper fetch-csl vancouver\n"
+            "  vibepaper fetch-csl nature\n"
+            "  vibepaper fetch-csl biomed-central\n\n"
+            "Browse all available styles at https://www.zotero.org/styles"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "style",
+        help="Style name as it appears in the Zotero URL (e.g. vancouver, nature, apa).",
+    )
+    parser.add_argument(
+        "--output", "-o", metavar="FILE",
+        help="Output path (default: paper/<style>.csl).",
+    )
+    args = parser.parse_args(argv)
+
+    style = args.style
+    output = Path(args.output) if args.output else Path(f"paper/{style}.csl")
+    url = f"https://www.zotero.org/styles/{style}"
+
+    print(f"Fetching {url} ...")
+    try:
+        with urllib.request.urlopen(url) as response:
+            content = response.read()
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            print(
+                f"error: style '{style}' not found.\n"
+                "Browse available styles at https://www.zotero.org/styles",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        raise
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(content)
+    print(f"Saved {output} — commit this to your repo.")
+
+
+# ---------------------------------------------------------------------------
+# build subcommand (default)
+# ---------------------------------------------------------------------------
+
+def _cmd_build(argv):
     parser = argparse.ArgumentParser(
         prog="vibepaper",
         description=(
@@ -67,26 +133,23 @@ def main():
         help="Print detailed progress (section rendering, pandoc invocation, etc.).",
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     level = logging.DEBUG if args.verbose else logging.WARNING
     logging.basicConfig(level=level, format="%(message)s")
 
     # --- Determine sections and project_root ---
     if args.sections:
-        # Mode: positional file arguments
         sections = [str(Path(s).resolve()) for s in args.sections]
         project_root = Path.cwd()
         config = minimal_config(sections, name=args.name)
 
     elif args.sections_file:
-        # Mode: plain text sections file
         sections_path = Path(args.sections_file).resolve()
         sections = load_sections_file(sections_path)
         project_root = Path.cwd()
         config = minimal_config(sections, name=args.name)
 
     else:
-        # Mode: paper.toml
         config_path = Path(args.config).resolve()
         if not config_path.exists():
             print(
@@ -100,7 +163,6 @@ def main():
         if args.name:
             config["name"] = args.name
 
-    # Apply CLI overrides that work across all modes
     if args.facts_dir:
         config["facts_dir"] = args.facts_dir
 

@@ -263,10 +263,14 @@ pandoc resolves these against a BibTeX file and formats them using a CSL style f
 
 1. **Create a `.bib` file** (`paper/references.bib`) with your references in BibTeX format. Most reference managers (Zotero, Mendeley, Papers) can export this directly.
 
-2. **Download a CSL file** for your target journal from [zotero.org/styles](https://www.zotero.org/styles). For Vancouver/numbered style (used by many biomedical journals):
+2. **Download a CSL file** for your target journal:
    ```bash
-   curl -sL "https://www.zotero.org/styles/vancouver" -o paper/vancouver.csl
+   vibepaper fetch-csl vancouver        # numbered, most biomedical journals
+   vibepaper fetch-csl nature
+   vibepaper fetch-csl biomed-central
+   vibepaper fetch-csl apa
    ```
+   This saves `paper/<style>.csl` — commit it to your repo. Browse all ~10,000 available styles at [zotero.org/styles](https://www.zotero.org/styles).
 
 3. **Add both to `paper.toml`:**
    ```toml
@@ -391,6 +395,14 @@ Output:
 
 Flags:
   --verbose, -v         Print detailed progress
+
+vibepaper fetch-csl <style> [--output FILE]
+
+  Download a CSL style file from zotero.org/styles to paper/<style>.csl.
+  Commit the downloaded file to your repo.
+
+  vibepaper fetch-csl vancouver
+  vibepaper fetch-csl nature --output paper/custom.csl
 ```
 
 ---
