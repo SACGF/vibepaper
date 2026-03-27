@@ -129,6 +129,10 @@ def _cmd_build(argv):
         help="Append supplementary into the main document instead of a separate file.",
     )
     parser.add_argument(
+        "--pdf", action="store_true",
+        help="Also produce a PDF alongside each .docx (requires weasyprint: pip install 'vibepaper[pdf]').",
+    )
+    parser.add_argument(
         "--verbose", "-v", action="store_true",
         help="Print detailed progress (section rendering, pandoc invocation, etc.).",
     )
@@ -175,4 +179,4 @@ def _cmd_build(argv):
     extra_context = load_json_data(args.data) if args.data else None
 
     run_build(config, project_root, output_dir, combined=args.combined,
-              extra_context=extra_context)
+              extra_context=extra_context, pdf=args.pdf)

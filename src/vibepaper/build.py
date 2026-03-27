@@ -193,12 +193,76 @@ def build_docx(
     subprocess.run(pandoc_args(sections, output, reference_doc, bibliography, csl), check=True)
 
 
+def build_pdf(
+    sections: list[str],
+    output: Path,
+    resource_path: Path,
+    bibliography: Path | None = None,
+    csl: Path | None = None,
+) -> Path:
+    """Build a PDF via pandoc (markdown→HTML) then weasyprint (HTML→PDF).
+
+    Pandoc renders the sections to a self-contained HTML document with all
+    images embedded as data URIs (--embed-resources).  weasyprint then
+    converts the HTML string to PDF entirely within Python.
+
+    Requires: pip install 'vibepaper[pdf]'
+    """
+    try:
+        import weasyprint
+    except ImportError:
+        raise RuntimeError(
+            "PDF output requires weasyprint.\n"
+            "  pip install 'vibepaper[pdf]'\n"
+            "  or: pip install weasyprint"
+        )
+
+    html_args = [
+        "pandoc",
+        *sections,
+        "--from", "markdown",
+        "--to", "html5",
+        "--standalone",
+        "--embed-resources",
+        "--resource-path", str(resource_path),
+    ]
+    if bibliography and bibliography.exists():
+        html_args += ["--bibliography", str(bibliography), "--citeproc"]
+        log.debug("PDF: using bibliography %s", bibliography)
+    if csl and csl.exists():
+        html_args += ["--csl", str(csl)]
+        log.debug("PDF: using CSL %s", csl)
+
+    log.debug("Building HTML for PDF %s", output)
+    result = subprocess.run(html_args, capture_output=True, check=True, text=True)
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    # fontTools creates specific child loggers during font subsetting that log
+    # at DEBUG/INFO even when the root logger is at WARNING.  Silence them
+    # explicitly unless the caller has enabled DEBUG logging.
+    if not log.isEnabledFor(logging.DEBUG):
+        for _name in (
+            "weasyprint",          # CSS parse warnings — harmless, from pandoc's default CSS
+            "fontTools",
+            "fontTools.ttLib",
+            "fontTools.ttLib.ttFont",
+            "fontTools.subset",
+            "fontTools.subset.timer",
+        ):
+            logging.getLogger(_name).setLevel(logging.ERROR)
+
+    log.debug("Rendering PDF %s", output)
+    weasyprint.HTML(string=result.stdout).write_pdf(str(output))
+    return output
+
+
 def run_build(
     config: dict,
     project_root: Path,
     output_dir: Path,
     combined: bool = False,
     extra_context: dict | None = None,
+    pdf: bool = False,
 ):
     """Full pipeline: Jinja2 pass → table pass → pandoc.
 
@@ -264,6 +328,10 @@ def run_build(
     build_docx(build_paths(main_sections), main_docx, reference_doc, bibliography, csl)
     strip_bookmarks(main_docx)
     print(f"Done: {main_docx}")
+    if pdf:
+        main_pdf = build_pdf(build_paths(main_sections), main_docx.with_suffix(".pdf"),
+                             project_root, bibliography, csl)
+        print(f"Done: {main_pdf}")
 
     # Supplementary (separate unless --combined)
     if not combined and config["supplementary"]:
@@ -271,6 +339,10 @@ def run_build(
         build_docx(build_paths(config["supplementary"]), supp_docx, reference_doc, bibliography, csl)
         strip_bookmarks(supp_docx)
         print(f"Done: {supp_docx}")
+        if pdf:
+            supp_pdf = build_pdf(build_paths(config["supplementary"]),
+                                 supp_docx.with_suffix(".pdf"), project_root, bibliography, csl)
+            print(f"Done: {supp_pdf}")
 
 
 def _resolve(path_str: str, project_root: Path) -> Path:
