@@ -382,7 +382,7 @@ Pass `--pdf` to produce a PDF alongside each `.docx`:
 vibepaper --pdf
 ```
 
-The pipeline is: pandoc renders the Markdown sections to a self-contained HTML document (images embedded as data URIs), then [weasyprint](https://weasyprint.org/) converts that HTML to PDF entirely in Python. Citations and bibliography work the same as for Word output.
+The pipeline is: pandoc renders the Markdown sections to a self-contained HTML document (images embedded as data URIs), then [weasyprint](https://weasyprint.org/) converts that HTML to PDF entirely in Python. Citations and bibliography work the same as for Word output. This works well for typical manuscript content; complex layout requirements (multi-column, precise figure placement, journal-specific PDF templates) may not render as expected.
 
 ---
 
@@ -453,6 +453,18 @@ my_paper/
 ## Migrating an existing paper
 
 [`ONBOARDING_PROMPT.md`](ONBOARDING_PROMPT.md) in this repository is a step-by-step prompt you can paste into a 🤖 LLM agent in any existing paper project. It walks through auditing hardcoded numbers, writing facts CSVs from existing analysis scripts, setting up citations, and verifying the build.
+
+---
+
+## What vibepaper does not do
+
+These are deliberately out of scope:
+
+- **Running your analysis scripts** — vibepaper reads their outputs; it does not execute them or manage dependencies between them.
+- **Tracking whether outputs are current** — it trusts whatever is in `output/facts/` at build time. If you rerun a script and forget to rebuild, the paper will use stale data. A Snakemake workflow or similar is the right tool for dependency tracking.
+- **Figure generation** — plots and diagrams are produced by your scripts and embedded in Markdown as normal images. vibepaper does not generate or verify them.
+- **Environment reproducibility** — Python versions, package versions, and input datasets are outside its scope. Use conda environments, Docker, or similar for that.
+- **Reference management** — vibepaper delegates citation processing entirely to pandoc and the BibTeX/CSL ecosystem.
 
 ---
 
