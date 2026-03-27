@@ -191,16 +191,16 @@ to {{ transcript_growth.v115_count | commas }}.
 
 vibepaper raises a hard error if a referenced column doesn't exist. It warns if the rendered output contains literal `nan`, `None`, or unresolved `{{`.
 
-### JSON data (supplemental)
+### JSON facts
 
-Pass additional values directly without creating a CSV file:
+JSON can be used instead of (or alongside) facts CSVs. Pass a JSON file or inline dict with `--data`:
 
 ```bash
-# Inline dict
-vibepaper --data '{"cohort_size": 412, "stats": {"pvalue": 0.003}}'
-
 # From file
 vibepaper --data results.json
+
+# Inline dict
+vibepaper --data '{"cohort_size": 412, "stats": {"pvalue": 0.003}}'
 ```
 
 Top-level keys become namespaces:
@@ -209,7 +209,7 @@ Top-level keys become namespaces:
 Cohort: {{ cohort_size }} participants (p = {{ stats.pvalue | dp(3) }}).
 ```
 
-JSON is merged on top of facts CSVs. Nested dicts are deep-merged at the namespace level; scalar values override directly.
+JSON values are merged on top of any facts CSVs. Nested dicts are deep-merged at the namespace level; scalar values override directly. Use JSON when you prefer a single structured file over a directory of 1-row CSVs, or when your analysis already produces JSON output.
 
 ---
 
