@@ -131,7 +131,7 @@ Mean transcripts per variant increased {{ vep.mean_fold | fold }} from
 
 ## Data sources
 
-### Key-facts CSVs (primary)
+### Facts CSVs (primary)
 
 The main data binding mechanism. Analysis scripts write **1-row CSVs** to `output/facts/`. The filename stem becomes the template namespace; column names become field names.
 
