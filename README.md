@@ -42,6 +42,10 @@ When you rerun the analysis, you rerun the build. The numbers update everywhere,
 2. **Loud failures over silent omissions.** A missing or renamed CSV column is a build error, not an empty string in the output.
 3. **Every inserted value can be traced back to its template reference and source data file.** Nothing is injected silently — if a value is in the paper, there is a `{{ }}` reference in the Markdown and a data file that supplied it.
 
+These constraints matter most in an agent-driven workflow: an agent can iterate analysis freely and update CSVs, but it cannot introduce transcription errors because no values are ever typed by hand.
+
+**Why not Quarto or R Markdown?** Those tools embed code in the document itself (literate programming) and are excellent for that model. vibepaper is language-agnostic — your analysis scripts can be Python, R, bash, or anything else, and the paper is plain Markdown. Word output is first-class for journal submission. And an AI agent can iterate the analysis and update CSVs without ever touching the manuscript source.
+
 ---
 
 ## End-to-end example
@@ -277,7 +281,7 @@ Use JSON when you prefer a single structured file over a directory of 1-row CSVs
 
 ---
 
-## Table directives
+## Table Directives
 
 For supplementary tables, embed CSVs directly into the Markdown with a directive comment:
 
@@ -444,7 +448,9 @@ Pass `--pdf` to produce a PDF alongside each `.docx`:
 vibepaper --pdf
 ```
 
-The pipeline is: pandoc renders the Markdown sections to a self-contained HTML document (images embedded as data URIs), then [weasyprint](https://weasyprint.org/) converts that HTML to PDF entirely in Python. Citations and bibliography work the same as for Word output. This works well for typical manuscript content; complex layout requirements (multi-column, precise figure placement, journal-specific PDF templates) may not render as expected and is not suitable for journal-specific PDF layout requirements.
+> **Note:** PDF output is not suitable for journal-specific layout requirements. Use `.docx` for submission; PDF is useful for sharing readable drafts.
+
+The pipeline is: pandoc renders the Markdown sections to a self-contained HTML document (images embedded as data URIs), then [weasyprint](https://weasyprint.org/) converts that HTML to PDF entirely in Python. Citations and bibliography work the same as for Word output. This works well for typical manuscript content; complex layout requirements (multi-column, precise figure placement, journal-specific PDF templates) may not render as expected.
 
 ---
 
