@@ -2,9 +2,23 @@
 
 ![PyPi version](https://img.shields.io/pypi/v/vibepaper.svg) [![Python versions](https://img.shields.io/pypi/pyversions/vibepaper.svg)](https://pypi.org/project/vibepaper/)
 
-Build scientific papers from Markdown where reported results are pulled directly from analysis outputs.
+AI-agent-friendly scientific paper builder — analysis outputs wire directly into manuscript text.
 
-**No reported result value in a vibepaper document is typed by hand.** Every result value that comes from your analysis enters the paper through a structured data file written by your analysis scripts. Rerun the analysis, rebuild the paper — those values update everywhere, automatically. This means you can iterate freely on your analysis without worrying the paper has fallen out of date.
+**No reported result value in a vibepaper document is typed by hand.** Analysis scripts write key results to named CSV files; the paper references those values by name using Jinja2 templates; the build substitutes every reference before producing Word output. Every number in the final document traces back to a computed file — not the author's memory, and not an AI agent's memory.
+
+The name is a nod to vibe coding: give an AI agent write access to `output/facts/`, have it update CSVs as it runs analysis, and rebuild. The agent authors the narrative and iterates the analysis; it cannot inject numeric values directly into the manuscript. Nothing falls out of date.
+
+## Using an AI agent?
+
+Paste [`ONBOARDING_PROMPT.md`](ONBOARDING_PROMPT.md) into your LLM agent in the target project. It walks through auditing hardcoded numbers, writing facts CSVs from your analysis scripts, and verifying the build. The typical loop from there:
+
+- Agent reads existing paper sections and analysis scripts
+- Agent writes/updates `output/facts/*.csv` after each analysis run
+- You run `vibepaper` — numbers update everywhere, with a hard error if any reference is missing
+
+For a manual walkthrough, see the [end-to-end example](#end-to-end-example) below.
+
+---
 
 ## The problem
 
@@ -27,6 +41,46 @@ When you rerun the analysis, you rerun the build. The numbers update everywhere,
 1. **Templates express intent; scripts express computation.** No arithmetic in templates. If you need a percentage increase, the analysis script computes and writes it. The template formats it.
 2. **Loud failures over silent omissions.** A missing or renamed CSV column is a build error, not an empty string in the output.
 3. **Every inserted value can be traced back to its template reference and source data file.** Nothing is injected silently — if a value is in the paper, there is a `{{ }}` reference in the Markdown and a data file that supplied it.
+
+---
+
+## End-to-end example
+
+1. **Create a facts CSV** with your analysis result:
+
+   ```bash
+   mkdir -p output/facts
+   printf "n,mean_age\n412,54.3\n" > output/facts/cohort.csv
+   ```
+
+2. **Write a Markdown section** referencing those values — save as `paper/results.md`:
+
+   ```markdown
+   # Results
+
+   The cohort included {{ cohort.n | commas }} participants
+   with a mean age of {{ cohort.mean_age | dp(1) }} years.
+   ```
+
+3. **Create `paper.toml`**:
+
+   ```toml
+   [paper]
+   sections = ["paper/results.md"]
+   name = "my_paper"
+   ```
+
+4. **Build**:
+
+   ```bash
+   vibepaper
+   ```
+
+5. The output at `output/my_paper_<date>.docx` contains:
+
+   > The cohort included 412 participants with a mean age of 54.3 years.
+
+Now update `cohort.csv` (rerun your analysis), rebuild, and the numbers update everywhere automatically.
 
 ---
 
@@ -460,7 +514,7 @@ my_paper/
 
 ## Migrating an existing paper
 
-[`ONBOARDING_PROMPT.md`](ONBOARDING_PROMPT.md) in this repository is a step-by-step prompt you can paste into a 🤖 LLM agent in any existing paper project. It walks through auditing hardcoded numbers, writing facts CSVs from existing analysis scripts, setting up citations, and verifying the build.
+Use [`ONBOARDING_PROMPT.md`](ONBOARDING_PROMPT.md) — see [Using an AI agent?](#using-an-ai-agent) above.
 
 ---
 
