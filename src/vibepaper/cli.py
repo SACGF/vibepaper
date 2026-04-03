@@ -11,21 +11,32 @@ from .build import load_config, load_json_data, load_sections_file, minimal_conf
 
 
 def main():
-    # Route subcommands before the main build parser so that positional .md
-    # file arguments are never mistaken for subcommand names.
-    if len(sys.argv) > 1 and sys.argv[1] == "fetch-csl":
-        _cmd_fetch_csl(sys.argv[2:])
-        return
-    _cmd_build(sys.argv[1:])
-
-
-# ---------------------------------------------------------------------------
-# fetch-csl subcommand
-# ---------------------------------------------------------------------------
-
-def _cmd_fetch_csl(argv):
     parser = argparse.ArgumentParser(
-        prog="vibepaper fetch-csl",
+        prog="vibepaper",
+        description="Data-bound Markdown-to-Word builder for scientific papers.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    subparsers = parser.add_subparsers(dest="command")
+
+    # -- build (default) ----------------------------------------------------
+    build_parser = subparsers.add_parser(
+        "build",
+        help="Build a Word document from Markdown paper sections.",
+        description=(
+            "Build a Word document from Markdown paper sections.\n\n"
+            "Three ways to specify which files to build:\n"
+            "  1. paper.toml config file (default, if present)\n"
+            "  2. --sections-file order.txt  (plain text list of .md files)\n"
+            "  3. vibepaper build intro.md methods.md results.md  (positional args)"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    _add_build_args(build_parser)
+
+    # -- fetch-csl ----------------------------------------------------------
+    fetch_csl_parser = subparsers.add_parser(
+        "fetch-csl",
+        help="Download a CSL citation style from zotero.org/styles.",
         description=(
             "Download a CSL citation style file from zotero.org/styles "
             "and save it to your paper directory.\n\n"
@@ -37,56 +48,65 @@ def _cmd_fetch_csl(argv):
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument(
+    fetch_csl_parser.add_argument(
         "style",
         help="Style name as it appears in the Zotero URL (e.g. vancouver, nature, apa).",
     )
-    parser.add_argument(
+    fetch_csl_parser.add_argument(
         "--output", "-o", metavar="FILE",
         help="Output path (default: paper/<style>.csl).",
     )
-    args = parser.parse_args(argv)
 
-    style = args.style
-    output = Path(args.output) if args.output else Path(f"paper/{style}.csl")
-    url = f"https://www.zotero.org/styles/{style}"
-
-    print(f"Fetching {url} ...")
-    try:
-        with urllib.request.urlopen(url) as response:
-            content = response.read()
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            print(
-                f"error: style '{style}' not found.\n"
-                "Browse available styles at https://www.zotero.org/styles",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-        raise
-
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_bytes(content)
-    print(f"Saved {output} — commit this to your repo.")
-
-
-# ---------------------------------------------------------------------------
-# build subcommand (default)
-# ---------------------------------------------------------------------------
-
-def _cmd_build(argv):
-    parser = argparse.ArgumentParser(
-        prog="vibepaper",
+    # -- wrap ---------------------------------------------------------------
+    wrap_parser = subparsers.add_parser(
+        "wrap",
+        help="Wrap long lines in Markdown files.",
         description=(
-            "Build a Word document from Markdown paper sections.\n\n"
-            "Three ways to specify which files to build:\n"
-            "  1. paper.toml config file (default, if present)\n"
-            "  2. --sections-file order.txt  (plain text list of .md files)\n"
-            "  3. vibepaper intro.md methods.md results.md  (positional args)"
+            "Wrap long lines in Markdown files without breaking template expressions.\n\n"
+            "Treats {{ ... }} template expressions as atomic tokens that are never\n"
+            "split across lines. Preserves headings, blank lines, list items, and\n"
+            "indentation."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    wrap_parser.add_argument(
+        "files", nargs="+", type=Path, help="Markdown files to wrap",
+    )
+    wrap_parser.add_argument(
+        "-w", "--width", type=int, default=88, help="Max line width (default: 88)",
+    )
+    wrap_parser.add_argument(
+        "--check", action="store_true", help="Check only; exit 1 if changes needed",
+    )
 
+    # -- Parse --------------------------------------------------------------
+    # If the first arg doesn't look like a subcommand, treat it as a build.
+    # This keeps `vibepaper paper.toml` and `vibepaper intro.md` working.
+    known_commands = {"build", "fetch-csl", "wrap", "-h", "--help"}
+    if len(sys.argv) > 1 and sys.argv[1] not in known_commands:
+        args = build_parser.parse_args(sys.argv[1:])
+        args.command = "build"
+    else:
+        args = parser.parse_args()
+
+    if args.command is None:
+        parser.print_help()
+        sys.exit(0)
+
+    if args.command == "build":
+        _run_build(args)
+    elif args.command == "fetch-csl":
+        _run_fetch_csl(args)
+    elif args.command == "wrap":
+        _run_wrap(args)
+
+
+# ---------------------------------------------------------------------------
+# build
+# ---------------------------------------------------------------------------
+
+def _add_build_args(parser):
+    """Register arguments shared by the build subcommand."""
     # --- Input ---
     parser.add_argument(
         "sections", nargs="*", metavar="FILE.md",
@@ -137,7 +157,8 @@ def _cmd_build(argv):
         help="Print detailed progress (section rendering, pandoc invocation, etc.).",
     )
 
-    args = parser.parse_args(argv)
+
+def _run_build(args):
     level = logging.DEBUG if args.verbose else logging.WARNING
     logging.basicConfig(level=level, format="%(message)s")
 
@@ -180,3 +201,57 @@ def _cmd_build(argv):
 
     run_build(config, project_root, output_dir, combined=args.combined,
               extra_context=extra_context, pdf=args.pdf)
+
+
+# ---------------------------------------------------------------------------
+# fetch-csl
+# ---------------------------------------------------------------------------
+
+def _run_fetch_csl(args):
+    style = args.style
+    output = Path(args.output) if args.output else Path(f"paper/{style}.csl")
+    url = f"https://www.zotero.org/styles/{style}"
+
+    print(f"Fetching {url} ...")
+    try:
+        with urllib.request.urlopen(url) as response:
+            content = response.read()
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            print(
+                f"error: style '{style}' not found.\n"
+                "Browse available styles at https://www.zotero.org/styles",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        raise
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(content)
+    print(f"Saved {output} — commit this to your repo.")
+
+
+# ---------------------------------------------------------------------------
+# wrap
+# ---------------------------------------------------------------------------
+
+def _run_wrap(args):
+    from .wrap_markdown import wrap_file
+
+    would_change = False
+    for path in args.files:
+        original = path.read_text()
+        wrapped = wrap_file(original, args.width)
+        if original != wrapped:
+            would_change = True
+            if args.check:
+                print(f"would wrap: {path}")
+            else:
+                path.write_text(wrapped)
+                print(f"wrapped: {path}")
+        else:
+            if not args.check:
+                print(f"unchanged: {path}")
+
+    if args.check and would_change:
+        sys.exit(1)

@@ -25,20 +25,32 @@ _SANITY_RE = re.compile(
 
 
 def load_facts(facts_dir: Path) -> dict:
-    """Load all 1-row CSVs from facts_dir into a namespace dict.
+    """Load facts CSVs from facts_dir into a namespace dict.
 
-    Each file 'foo_bar.csv' becomes context['foo_bar'] = {col: value, ...}.
-    Raises ValueError if any CSV has more than one data row.
+    Supports two formats (auto-detected):
+    - **Vertical** (preferred): header ``field,value``, one row per fact.
+    - **Horizontal** (legacy): column names as header, single data row.
+
+    Each file 'foo_bar.csv' becomes context['foo_bar'] = {field: value, ...}.
     """
     context = {}
     for csv_path in sorted(facts_dir.glob("*.csv")):
         df = pd.read_csv(csv_path)
-        if len(df) != 1:
+        if list(df.columns[:2]) == ["field", "value"]:
+            # Vertical format: field,value rows — coerce numeric strings
+            values = pd.to_numeric(df["value"], errors="coerce").where(
+                lambda s: s.notna(), df["value"]
+            )
+            context[csv_path.stem] = dict(zip(df["field"], values))
+        elif len(df) == 1:
+            # Horizontal (legacy): single data row
+            context[csv_path.stem] = df.iloc[0].to_dict()
+        else:
             raise ValueError(
-                f"{csv_path}: facts CSVs must have exactly 1 row, got {len(df)}"
+                f"{csv_path}: unrecognised facts CSV format "
+                f"({len(df)} rows, columns: {list(df.columns)[:4]})"
             )
         namespace = csv_path.stem
-        context[namespace] = df.iloc[0].to_dict()
         log.debug("Loaded facts: %s (%d fields)", namespace, len(context[namespace]))
     return context
 

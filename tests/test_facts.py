@@ -29,6 +29,24 @@ def test_string_column_preserved(tmp_path):
 def test_empty_directory_returns_empty_dict(tmp_path):
     assert load_facts(tmp_path) == {}
 
+def test_vertical_format_loaded(tmp_path):
+    (tmp_path / "stats.csv").write_text("field,value\ncount,42\nmean,3.14\n")
+    ctx = load_facts(tmp_path)
+    assert ctx["stats"]["count"] == 42
+    assert abs(ctx["stats"]["mean"] - 3.14) < 0.001
+
+def test_vertical_string_value_preserved(tmp_path):
+    (tmp_path / "meta.csv").write_text('field,value\ngenes,"APC, BRCA1"\n')
+    ctx = load_facts(tmp_path)
+    assert ctx["meta"]["genes"] == "APC, BRCA1"
+
+def test_vertical_and_horizontal_coexist(tmp_path):
+    (tmp_path / "new.csv").write_text("field,value\nx,1\n")
+    (tmp_path / "old.csv").write_text("y\n99\n")
+    ctx = load_facts(tmp_path)
+    assert ctx["new"]["x"] == 1
+    assert ctx["old"]["y"] == 99
+
 def test_multi_row_csv_raises(tmp_path):
     (tmp_path / "bad.csv").write_text("a,b\n1,2\n3,4\n")
     with pytest.raises(ValueError):
