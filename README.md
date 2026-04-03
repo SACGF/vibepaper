@@ -265,6 +265,23 @@ to {{ transcript_growth.v115_count | commas }}.
 
 vibepaper raises a hard error if a referenced field doesn't exist. It warns if the rendered output contains literal `nan`, `None`, or unresolved `{{`.
 
+### The `facts_dir` variable
+
+The resolved facts directory path is automatically available in templates as `{{ facts_dir }}`. This is useful for image paths that live alongside your facts CSVs — especially when the output directory changes between runs (e.g. timestamped or hashed paths):
+
+```markdown
+![Figure 1]({{ facts_dir }}/survival_curve.png)
+![Figure 2]({{ facts_dir }}/volcano_plot.png)
+```
+
+If your analysis writes to `output/2026-03-21_8b1471f/`, pass `--facts-dir` and the image paths update automatically:
+
+```bash
+vibepaper --facts-dir output/2026-03-21_8b1471f
+```
+
+No more editing hardcoded paths in the Markdown every time the analysis reruns.
+
 ### JSON facts
 
 JSON can be used instead of (or alongside) facts CSVs. Pass a JSON file or inline dict with `--data`:
@@ -509,6 +526,20 @@ vibepaper wrap <FILE.md ...> [--width N] [--check]
   vibepaper wrap paper/results.md              # in-place, default 88 cols
   vibepaper wrap paper/*.md --width 72         # custom width
   vibepaper wrap paper/*.md --check            # exit 1 if changes needed (CI)
+
+vibepaper sync [--config FILE] [--dry-run] [--verbose]
+
+  Push paragraph-level changes to a Google Doc as tracked-change suggestions.
+  On first run, creates a new Google Doc. On subsequent runs, diffs against
+  the last-synced version and pushes only changed paragraphs.
+
+  Requires .vibepaper/credentials.json (OAuth client secret from Google Cloud
+  Console). Will open a browser for authentication on first use.
+
+  Install sync dependencies:  pip install vibepaper[sync]
+
+  vibepaper sync                               # push changes
+  vibepaper sync --dry-run                     # preview without pushing
 ```
 
 ---

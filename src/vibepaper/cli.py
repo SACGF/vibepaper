@@ -95,10 +95,39 @@ def main():
         help="paper.toml config file (default: paper.toml in cwd).",
     )
 
+    # -- sync ---------------------------------------------------------------
+    sync_parser = subparsers.add_parser(
+        "sync",
+        help="Sync changes to a Google Doc as suggestions.",
+        description=(
+            "Push paragraph-level changes to a Google Doc as tracked-change\n"
+            "suggestions. On first run, creates a new Google Doc. On subsequent\n"
+            "runs, computes a diff against the last-synced version and pushes\n"
+            "only changed paragraphs.\n\n"
+            "Requires .vibepaper/credentials.json (OAuth client secret from\n"
+            "Google Cloud Console). Will open a browser for authentication on\n"
+            "first use.\n\n"
+            "Install sync dependencies:  pip install vibepaper[sync]"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sync_parser.add_argument(
+        "--config", default="paper.toml", metavar="FILE",
+        help="paper.toml config file (default: paper.toml in cwd).",
+    )
+    sync_parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Show what would be synced without making changes.",
+    )
+    sync_parser.add_argument(
+        "--verbose", "-v", action="store_true",
+        help="Print detailed progress.",
+    )
+
     # -- Parse --------------------------------------------------------------
     # If the first arg doesn't look like a subcommand, treat it as a build.
     # This keeps `vibepaper paper.toml` and `vibepaper intro.md` working.
-    known_commands = {"build", "fetch-csl", "wrap", "diff", "-h", "--help"}
+    known_commands = {"build", "fetch-csl", "wrap", "diff", "sync", "-h", "--help"}
     if len(sys.argv) > 1 and sys.argv[1] not in known_commands:
         args = build_parser.parse_args(sys.argv[1:])
         args.command = "build"
@@ -117,6 +146,8 @@ def main():
         _run_wrap(args)
     elif args.command == "diff":
         _run_diff(args)
+    elif args.command == "sync":
+        _run_sync(args)
 
 
 # ---------------------------------------------------------------------------
@@ -323,3 +354,93 @@ def _run_diff(args):
     new_text = concatenate_sections(build_paper, all_sections)
     changes = diff_paragraphs(old_text, new_text)
     print(format_diff(changes))
+
+
+# ---------------------------------------------------------------------------
+# sync
+# ---------------------------------------------------------------------------
+
+def _run_sync(args):
+    import hashlib
+    from .diff import load_cache, diff_paragraphs, format_diff
+    from .gdocs import (
+        get_docs_service, create_doc, sync_to_doc,
+        SyncState, save_synced_render, load_synced_render,
+    )
+
+    level = logging.DEBUG if args.verbose else logging.WARNING
+    logging.basicConfig(level=level, format="%(message)s")
+
+    config_path = Path(args.config).resolve()
+    if not config_path.exists():
+        print(f"error: {config_path} not found.", file=sys.stderr)
+        sys.exit(1)
+
+    config = load_config(config_path)
+    project_root = config_path.parent
+    build_dir = project_root / config["build_dir"]
+
+    # Load current rendered markdown from build cache
+    current_text = load_cache(build_dir)
+    if current_text is None:
+        print(
+            "No cached render found. Run 'vibepaper build' first.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    state = SyncState.load(project_root)
+    service = get_docs_service(project_root)
+
+    current_hash = hashlib.sha256(current_text.encode()).hexdigest()
+
+    if state.doc_id is None:
+        # First sync: create new Google Doc
+        if args.dry_run:
+            print("(dry run) Would create a new Google Doc.")
+            return
+
+        print("Creating new Google Doc...")
+        title = f"{config['name']} — vibepaper sync"
+        doc_id = create_doc(service, title, current_text)
+        state.doc_id = doc_id
+        state.doc_url = f"https://docs.google.com/document/d/{doc_id}/edit"
+        state.save(project_root)
+        save_synced_render(current_text, project_root)
+        print(f"Created: {state.doc_url}")
+        print("Share this doc with your collaborators.")
+        return
+
+    # Subsequent sync: diff against last-synced version
+    old_text = load_synced_render(project_root)
+    if old_text is None:
+        print(
+            "Last-synced render not found. The sync state may be corrupt.\n"
+            "Delete .vibepaper/sync_state.json and re-sync to fix.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    old_hash = hashlib.sha256(old_text.encode()).hexdigest()
+    if old_hash == current_hash:
+        print("No changes since last sync.")
+        return
+
+    changes = diff_paragraphs(old_text, current_text)
+    if not changes:
+        print("No paragraph-level changes detected.")
+        save_synced_render(current_text, project_root)
+        return
+
+    print(format_diff(changes))
+
+    if args.dry_run:
+        print("(dry run — no changes pushed to Google Docs)")
+        return
+
+    print(f"Pushing {len(changes)} change(s) as suggestions...")
+    applied = sync_to_doc(service, state.doc_id, changes)
+    print(f"Applied {applied} suggestion(s) to {state.doc_url}")
+
+    save_synced_render(current_text, project_root)
+    print("Sync complete.")

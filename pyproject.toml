@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vibepaper"
-version = "0.5.0"
+version = "0.6.0"
 description = "Data-bound Markdown-to-Word builder for scientific papers"
 readme = "README.md"
 license = { text = "MIT" }
@@ -37,6 +37,13 @@ dependencies = [
     "lxml>=4.0",
     "tomli>=2.0; python_version < '3.11'",
     "weasyprint>=60.0",
+]
+
+[project.optional-dependencies]
+sync = [
+    "google-api-python-client>=2.0",
+    "google-auth-httplib2>=0.1",
+    "google-auth-oauthlib>=1.0",
 ]
 
 [project.urls]

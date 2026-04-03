@@ -292,6 +292,7 @@ def run_build(
 
     # Build Jinja2 context: facts CSVs, then merge any extra JSON data
     context: dict = {}
+    context["facts_dir"] = str(facts_dir)
     if facts_dir.exists():
         context.update(load_facts(facts_dir))
     else:

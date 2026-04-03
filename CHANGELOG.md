@@ -2,6 +2,13 @@
 
 All notable changes to vibepaper are documented here.
 
+## [0.6.0] — 2026-04-03
+
+### Added
+
+- **`facts_dir` template variable** — the resolved facts directory path is now injected into the Jinja2 context as `{{ facts_dir }}`. This lets image paths and other references track the facts directory automatically (e.g. `![Figure 1]({{ facts_dir }}/plot.png)`) instead of hardcoding paths that break when the output directory changes between runs.
+- **`vibepaper sync` subcommand** — push paragraph-level changes to a Google Doc as tracked-change suggestions. On first run, creates a new Google Doc; on subsequent runs, diffs against the last-synced version and pushes only changed paragraphs. Requires OAuth credentials in `.vibepaper/credentials.json`. Install sync dependencies with `pip install vibepaper[sync]`.
+
 ## [0.5.0] — 2026-04-03
 
 ### Added
