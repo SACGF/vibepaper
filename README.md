@@ -54,7 +54,7 @@ These constraints matter most in an agent-driven workflow: an agent can iterate 
 
    ```bash
    mkdir -p output/facts
-   printf "n,mean_age\n412,54.3\n" > output/facts/cohort.csv
+   printf "field,value\nn,412\nmean_age,54.3\n" > output/facts/cohort.csv
    ```
 
 2. **Write a Markdown section** referencing those values — save as `paper/results.md`:
@@ -226,7 +226,7 @@ Mean transcripts per variant increased {{ vep.mean_fold | fold }} from
 
 ### Facts CSVs (primary)
 
-The main data binding mechanism. Analysis scripts write **1-row CSVs** to `output/facts/`. The filename stem becomes the template namespace; column names become field names. One file per result group keeps each namespace small, explicit, and easy to diff in version control.
+The main data binding mechanism. Analysis scripts write CSVs to `output/facts/`. The filename stem becomes the template namespace; field names become template variables. One file per result group keeps each namespace small, explicit, and easy to diff in version control.
 
 ```
 output/facts/
@@ -235,21 +235,35 @@ output/facts/
     clinvar_reclassification.csv → {{ clinvar_reclassification.total_variants | commas }}
 ```
 
-A CSV named `transcript_growth.csv` with columns `v112_count, v115_count`:
+Two CSV formats are supported (auto-detected):
+
+#### Vertical format (preferred)
+
+Two columns named `field` and `value`, one row per fact. Easier to read and diff when you have many fields:
+
+```csv
+field,value
+v112_count,254129
+v115_count,509650
+```
+
+#### Horizontal format
+
+Column names as the header, with a single data row:
 
 ```csv
 v112_count,v115_count
 254129,509650
 ```
 
-Is referenced as:
+Both formats are referenced the same way:
 
 ```markdown
 Transcripts grew from {{ transcript_growth.v112_count | commas }}
 to {{ transcript_growth.v115_count | commas }}.
 ```
 
-vibepaper raises a hard error if a referenced column doesn't exist. It warns if the rendered output contains literal `nan`, `None`, or unresolved `{{`.
+vibepaper raises a hard error if a referenced field doesn't exist. It warns if the rendered output contains literal `nan`, `None`, or unresolved `{{`.
 
 ### JSON facts
 
@@ -457,7 +471,7 @@ The pipeline is: pandoc renders the Markdown sections to a self-contained HTML d
 ## CLI reference
 
 ```
-vibepaper [FILE.md ...] [options]
+vibepaper [build] [FILE.md ...] [options]
 
 Input (choose one):
   FILE.md ...           Markdown files in order (no paper.toml needed)
@@ -484,6 +498,17 @@ vibepaper fetch-csl <style> [--output FILE]
 
   vibepaper fetch-csl vancouver
   vibepaper fetch-csl nature --output paper/custom.csl
+
+vibepaper wrap <FILE.md ...> [--width N] [--check]
+
+  Wrap long lines in Markdown files without breaking {{ ... }} template
+  expressions. Treats template expressions as atomic tokens that are never
+  split across lines. Preserves headings, blank lines, list items, tables,
+  code blocks, and indentation.
+
+  vibepaper wrap paper/results.md              # in-place, default 88 cols
+  vibepaper wrap paper/*.md --width 72         # custom width
+  vibepaper wrap paper/*.md --check            # exit 1 if changes needed (CI)
 ```
 
 ---
@@ -507,8 +532,8 @@ my_paper/
 │   └── vancouver.csl         ← CSL citation style
 ├── output/
 │   ├── facts/
-│   │   ├── cohort.csv        ← 1-row: n_patients, n_controls, ...
-│   │   ├── model_results.csv ← 1-row: auc, pvalue, effect_size, ...
+│   │   ├── cohort.csv        ← field,value: n_patients, n_controls, ...
+│   │   ├── model_results.csv ← field,value: auc, pvalue, effect_size, ...
 │   │   └── ...
 │   └── tables/
 │       └── full_results.csv  ← multi-row: used in include-csv directives

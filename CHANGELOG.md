@@ -2,6 +2,17 @@
 
 All notable changes to vibepaper are documented here.
 
+## [0.5.0] — 2026-04-03
+
+### Added
+
+- **`vibepaper wrap` subcommand** — wraps long lines in Markdown files without breaking `{{ ... }}` template expressions. Treats template expressions as atomic tokens that are never split across lines. Preserves headings, blank lines, list items, and indentation. Supports `--width` (default 88) and `--check` (exit 1 if changes needed, useful in CI).
+- **Vertical facts CSVs** — facts CSVs now support a `field,value` format (one row per fact) alongside the original single-row "horizontal" format. The format is auto-detected. Vertical CSVs are easier to read and diff when you have many fields.
+
+### Changed
+
+- CLI refactored to use proper subcommands (`build`, `fetch-csl`, `wrap`). Running `vibepaper` without a subcommand still defaults to `build` for backwards compatibility.
+
 ## [0.4.0] — 2026-03-27
 
 ### Changed
