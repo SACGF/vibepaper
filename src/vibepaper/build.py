@@ -12,6 +12,8 @@ from pathlib import Path
 
 from lxml import etree
 
+from .diff import concatenate_sections, save_cache
+
 log = logging.getLogger(__name__)
 
 try:
@@ -316,6 +318,10 @@ def run_build(
     for section in all_sections:
         section_name = Path(section).name
         render_tables(build_jinja / section_name, build_paper, project_root)
+
+    # Cache rendered markdown for diff/sync
+    rendered_text = concatenate_sections(build_paper, all_sections)
+    save_cache(rendered_text, build_dir)
 
     def build_paths(sections):
         return [str(build_paper / Path(s).name) for s in sections]

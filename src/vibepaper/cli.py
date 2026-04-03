@@ -79,10 +79,26 @@ def main():
         "--check", action="store_true", help="Check only; exit 1 if changes needed",
     )
 
+    # -- diff ---------------------------------------------------------------
+    diff_parser = subparsers.add_parser(
+        "diff",
+        help="Show paragraph-level changes since last build.",
+        description=(
+            "Compare the current rendered output against the cached previous\n"
+            "render and show which paragraphs changed. Run 'vibepaper build'\n"
+            "first to establish a baseline."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    diff_parser.add_argument(
+        "--config", default="paper.toml", metavar="FILE",
+        help="paper.toml config file (default: paper.toml in cwd).",
+    )
+
     # -- Parse --------------------------------------------------------------
     # If the first arg doesn't look like a subcommand, treat it as a build.
     # This keeps `vibepaper paper.toml` and `vibepaper intro.md` working.
-    known_commands = {"build", "fetch-csl", "wrap", "-h", "--help"}
+    known_commands = {"build", "fetch-csl", "wrap", "diff", "-h", "--help"}
     if len(sys.argv) > 1 and sys.argv[1] not in known_commands:
         args = build_parser.parse_args(sys.argv[1:])
         args.command = "build"
@@ -99,6 +115,8 @@ def main():
         _run_fetch_csl(args)
     elif args.command == "wrap":
         _run_wrap(args)
+    elif args.command == "diff":
+        _run_diff(args)
 
 
 # ---------------------------------------------------------------------------
@@ -255,3 +273,53 @@ def _run_wrap(args):
 
     if args.check and would_change:
         sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# diff
+# ---------------------------------------------------------------------------
+
+def _run_diff(args):
+    from .diff import load_cache, concatenate_sections, diff_paragraphs, format_diff
+    from .render import load_facts, make_jinja_env, render_file as render_jinja
+    from .tables import process_file as render_tables
+
+    config_path = Path(args.config).resolve()
+    if not config_path.exists():
+        print(f"error: {config_path} not found.", file=sys.stderr)
+        sys.exit(1)
+
+    config = load_config(config_path)
+    project_root = config_path.parent
+    build_dir = project_root / config["build_dir"]
+    build_paper = build_dir / "paper"
+
+    old_text = load_cache(build_dir)
+    if old_text is None:
+        print(
+            "No cached render found. Run 'vibepaper build' at least once first.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # Re-render current state (Jinja2 + tables, no pandoc)
+    facts_dir = project_root / config["facts_dir"]
+    build_jinja = build_dir / "jinja" / "paper"
+
+    context: dict = {}
+    if facts_dir.exists():
+        context.update(load_facts(facts_dir))
+
+    jinja_env = make_jinja_env(project_root)
+    all_sections = config["sections"] + config["supplementary"]
+
+    for section in all_sections:
+        section_path = project_root / section
+        render_jinja(section_path, build_jinja, context, jinja_env)
+    for section in all_sections:
+        section_name = Path(section).name
+        render_tables(build_jinja / section_name, build_paper, project_root)
+
+    new_text = concatenate_sections(build_paper, all_sections)
+    changes = diff_paragraphs(old_text, new_text)
+    print(format_diff(changes))
