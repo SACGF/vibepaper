@@ -263,6 +263,7 @@ def run_build(
     combined: bool = False,
     extra_context: dict | None = None,
     pdf: bool = False,
+    md: bool = False,
 ):
     """Full pipeline: Jinja2 pass → table pass → pandoc.
 
@@ -337,6 +338,11 @@ def run_build(
         main_pdf = build_pdf(build_paths(main_sections), main_docx.with_suffix(".pdf"),
                              project_root, bibliography, csl)
         print(f"Done: {main_pdf}")
+    if md:
+        main_md = output_dir / f"{paper_name}_{today}.md"
+        main_rendered = concatenate_sections(build_paper, main_sections)
+        main_md.write_text(main_rendered)
+        print(f"Done: {main_md}")
 
     # Supplementary (separate unless --combined)
     if not combined and config["supplementary"]:
@@ -348,6 +354,11 @@ def run_build(
             supp_pdf = build_pdf(build_paths(config["supplementary"]),
                                  supp_docx.with_suffix(".pdf"), project_root, bibliography, csl)
             print(f"Done: {supp_pdf}")
+        if md:
+            supp_md = output_dir / f"{paper_name}_supplementary_{today}.md"
+            supp_rendered = concatenate_sections(build_paper, config["supplementary"])
+            supp_md.write_text(supp_rendered)
+            print(f"Done: {supp_md}")
 
 
 def _resolve(path_str: str, project_root: Path) -> Path:

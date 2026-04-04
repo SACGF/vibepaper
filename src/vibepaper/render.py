@@ -46,10 +46,9 @@ def load_facts(facts_dir: Path) -> dict:
             # Horizontal (legacy): single data row
             context[csv_path.stem] = df.iloc[0].to_dict()
         else:
-            raise ValueError(
-                f"{csv_path}: unrecognised facts CSV format "
-                f"({len(df)} rows, columns: {list(df.columns)[:4]})"
-            )
+            # Multi-row data CSV — not a facts file, skip silently
+            log.debug("Skipping %s (multi-row, not a facts CSV)", csv_path.name)
+            continue
         namespace = csv_path.stem
         log.debug("Loaded facts: %s (%d fields)", namespace, len(context[namespace]))
     return context

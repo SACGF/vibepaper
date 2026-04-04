@@ -47,10 +47,12 @@ def test_vertical_and_horizontal_coexist(tmp_path):
     assert ctx["new"]["x"] == 1
     assert ctx["old"]["y"] == 99
 
-def test_multi_row_csv_raises(tmp_path):
-    (tmp_path / "bad.csv").write_text("a,b\n1,2\n3,4\n")
-    with pytest.raises(ValueError):
-        load_facts(tmp_path)
+def test_multi_row_csv_skipped(tmp_path):
+    (tmp_path / "good.csv").write_text("field,value\nx,1\n")
+    (tmp_path / "multi.csv").write_text("a,b\n1,2\n3,4\n")
+    ctx = load_facts(tmp_path)
+    assert "good" in ctx
+    assert "multi" not in ctx
 
 
 # --- render_file: missing key raises clearly ---

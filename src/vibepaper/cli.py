@@ -202,6 +202,10 @@ def _add_build_args(parser):
         help="Also produce a PDF alongside each .docx.",
     )
     parser.add_argument(
+        "--md", action="store_true",
+        help="Also write rendered markdown (all templates resolved) alongside each .docx.",
+    )
+    parser.add_argument(
         "--verbose", "-v", action="store_true",
         help="Print detailed progress (section rendering, pandoc invocation, etc.).",
     )
@@ -249,7 +253,7 @@ def _run_build(args):
     extra_context = load_json_data(args.data) if args.data else None
 
     run_build(config, project_root, output_dir, combined=args.combined,
-              extra_context=extra_context, pdf=args.pdf)
+              extra_context=extra_context, pdf=args.pdf, md=args.md)
 
 
 # ---------------------------------------------------------------------------
