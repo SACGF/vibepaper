@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vibepaper"
-version = "0.6.0"
+version = "0.7.0"
 description = "Data-bound Markdown-to-Word builder for scientific papers"
 readme = "README.md"
 license = { text = "MIT" }

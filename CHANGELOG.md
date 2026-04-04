@@ -2,6 +2,16 @@
 
 All notable changes to vibepaper are documented here.
 
+## [0.7.0] — 2026-04-04
+
+### Added
+
+- **`--md` flag** — writes fully-rendered markdown (all templates resolved, tables expanded) alongside each `.docx`. Produces `{name}_{date}.md` and optionally `{name}_supplementary_{date}.md`. Useful for AI-assisted review workflows where the rendered text needs to be machine-readable.
+
+### Changed
+
+- **Multi-row CSVs in facts directory are silently skipped** — `load_facts` no longer raises `ValueError` on CSVs with more than one data row. This lets `--facts-dir` point directly at an analysis output directory that mixes 1-row facts CSVs with full data tables, without needing a separate curated facts directory.
+
 ## [0.6.0] — 2026-04-03
 
 ### Added
