@@ -2,6 +2,12 @@
 
 All notable changes to vibepaper are documented here.
 
+## [0.7.1] — 2026-04-05
+
+### Fixed
+
+- **`vibepaper wrap` no longer doubles numbered/bulleted list prefixes** — wrapping a line like `1. Some long text...` previously produced `1. 1. Some long text...` because the detected list prefix was passed to `textwrap.fill()` via `initial_indent` while still present in the text. The prefix is now stripped from the text before wrapping. Continuation lines are also correctly indented with spaces rather than repeating the list marker.
+
 ## [0.7.0] — 2026-04-04
 
 ### Added

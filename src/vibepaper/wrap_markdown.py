@@ -53,13 +53,14 @@ def wrap_line(line: str, width: int) -> str:
         padding = max(0, len(m.group(0)) - len(tag))
         return tag + "\x01" * padding
 
-    masked = TEMPLATE_RE.sub(_replace, line)
+    masked = TEMPLATE_RE.sub(_replace, line[len(indent):])
 
+    subsequent = " " * len(indent)
     wrapped = textwrap.fill(
         masked,
         width=width,
         initial_indent=indent,
-        subsequent_indent=indent,
+        subsequent_indent=subsequent,
         break_long_words=False,
         break_on_hyphens=False,
     )
