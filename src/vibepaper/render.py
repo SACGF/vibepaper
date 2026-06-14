@@ -10,7 +10,15 @@ import re
 from pathlib import Path
 
 import pandas as pd
-from jinja2 import Environment, FileSystemLoader, StrictUndefined, UndefinedError
+from jinja2 import (
+    BaseLoader,
+    ChoiceLoader,
+    Environment,
+    FileSystemLoader,
+    StrictUndefined,
+    TemplateNotFound,
+    UndefinedError,
+)
 
 log = logging.getLogger(__name__)
 
@@ -54,10 +62,61 @@ def load_facts(facts_dir: Path) -> dict:
     return context
 
 
-def make_jinja_env(project_root: Path) -> Environment:
-    """Create a Jinja2 environment with custom filters and strict undefined."""
+class _TrustedAbsoluteLoader(BaseLoader):
+    """Resolve ``{% include %}`` targets given as absolute paths, but only when
+    they live inside a *trusted root*.
+
+    Jinja's FileSystemLoader can only resolve names relative to a search root;
+    an absolute name like ``/abs/facts/foo.md`` never matches. Yet
+    ``{% include facts_dir + "/foo.md" %}`` produces exactly that whenever
+    ``facts_dir`` is absolute (the default under ``--facts-dir``).
+
+    A trusted root is a directory the *user* designated for this paper — the
+    project tree and the user-provided facts directory — never an arbitrary path
+    the template author named. So ``{% include "/etc/passwd" %}`` stays refused
+    even though the build process could read it. See issue #5.
+    """
+
+    def __init__(self, trusted_roots: list[Path]):
+        self.trusted_roots = [r.resolve() for r in trusted_roots]
+
+    def get_source(self, environment, template):
+        if not Path(template).is_absolute():
+            raise TemplateNotFound(template)
+        path = Path(template).resolve()
+        if not any(path.is_relative_to(root) for root in self.trusted_roots):
+            raise TemplateNotFound(template)
+        if not path.is_file():
+            raise TemplateNotFound(template)
+        source = path.read_text()
+        mtime = path.stat().st_mtime
+        return source, str(path), lambda: path.exists() and path.stat().st_mtime == mtime
+
+
+def make_jinja_env(
+    project_root: Path, extra_search_paths: list[Path] | None = None
+) -> Environment:
+    """Create a Jinja2 environment with custom filters and strict undefined.
+
+    ``{% include %}`` is confined to *trusted roots*: ``project_root`` plus any
+    ``extra_search_paths`` (in practice the user-provided ``facts_dir``).
+    Relative names resolve against those roots; absolute names — e.g.
+    ``{% include facts_dir + "/foo.md" %}`` when ``facts_dir`` is absolute —
+    resolve via :class:`_TrustedAbsoluteLoader`, which refuses any path outside
+    the trusted roots so a template cannot read arbitrary files on disk. See
+    issue #5 and ``render_file`` for the error produced when an include falls
+    outside these roots.
+    """
+    extra = list(extra_search_paths or [])
+    trusted_roots = [project_root, *extra]
+    loader = ChoiceLoader(
+        [
+            FileSystemLoader([str(p) for p in trusted_roots]),
+            _TrustedAbsoluteLoader(trusted_roots),
+        ]
+    )
     env = Environment(
-        loader=FileSystemLoader(str(project_root)),
+        loader=loader,
         undefined=StrictUndefined,
         keep_trailing_newline=True,
     )
@@ -113,6 +172,25 @@ def render_file(
         rendered = env.from_string(content).render(**context)
     except UndefinedError as exc:
         raise RuntimeError(f"Template error in {input_path}: {exc}") from exc
+    except TemplateNotFound as exc:
+        # {% include %} is confined to trusted roots (the project tree and the
+        # user-provided facts_dir). An absolute path that lands here is outside
+        # both — refused so a template cannot read arbitrary files on disk.
+        missing = exc.name or str(exc)
+        hint = ""
+        if Path(missing).is_absolute():
+            hint = (
+                "\nThis absolute path is outside the project directory and the "
+                "facts directory. `{% include %}` is confined to those trusted "
+                "roots and will not read files elsewhere on disk. Move the file "
+                "under the project tree or the facts directory (the one passed "
+                "via --facts-dir / config), then include it from there. "
+                "See issue #5."
+            )
+        raise RuntimeError(
+            f"Template error in {input_path}: could not find include "
+            f"{missing!r}.{hint}"
+        ) from exc
 
     output_path = build_dir / input_path.name
     build_dir.mkdir(parents=True, exist_ok=True)

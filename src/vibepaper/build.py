@@ -305,7 +305,10 @@ def run_build(
             else:
                 context[key] = value
 
-    jinja_env = make_jinja_env(project_root)
+    jinja_env = make_jinja_env(
+        project_root,
+        extra_search_paths=[facts_dir] if facts_dir.exists() else None,
+    )
 
     jinja_warnings = []
     for section in all_sections:

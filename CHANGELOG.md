@@ -2,6 +2,16 @@
 
 All notable changes to vibepaper are documented here.
 
+## [Unreleased]
+
+### Fixed
+
+- **`{% include facts_dir + "/foo.md" %}` now resolves with an absolute `facts_dir`** ([#5](https://github.com/SACGF/vibepaper/issues/5)) — previously failed with a cryptic `TemplateNotFound` because Jinja's `FileSystemLoader` cannot resolve absolute template names, which is what an absolute `facts_dir` (the default under `--facts-dir`) produces. `{% include %}` is now confined to *trusted roots* — the project tree and the user-provided facts directory — and resolves both relative and absolute includes within them. Absolute paths outside every trusted root (e.g. `{% include "/etc/passwd" %}`) are refused with an explanatory error, so a template still cannot read arbitrary files on disk. `vibepaper diff` now also injects `facts_dir` into its context to match `build`, and the `--data '{"facts_dir": "..."}'` workaround is no longer needed.
+
+### Removed
+
+- **`pct` filter** ([#4](https://github.com/SACGF/vibepaper/issues/4)) — the filter formatted a pre-multiplied percent (`52.2` → `"52.2%"`), but its name invited passing a fraction (`0.923`), which silently rendered the wrong order of magnitude (`"0.9%"` instead of `"92.3%"`). Templates now format percentages explicitly with `{{ value | dp(1) }}%`, and fact scripts are expected to emit pre-multiplied percent values. The filter name is still registered but raises a `RuntimeError` with migration instructions instead of failing with a generic "no such filter" error.
+
 ## [0.7.1] — 2026-04-05
 
 ### Fixed

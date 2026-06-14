@@ -342,10 +342,14 @@ def _run_diff(args):
     build_jinja = build_dir / "jinja" / "paper"
 
     context: dict = {}
+    context["facts_dir"] = str(facts_dir)
     if facts_dir.exists():
         context.update(load_facts(facts_dir))
 
-    jinja_env = make_jinja_env(project_root)
+    jinja_env = make_jinja_env(
+        project_root,
+        extra_search_paths=[facts_dir] if facts_dir.exists() else None,
+    )
     all_sections = config["sections"] + config["supplementary"]
 
     for section in all_sections:
