@@ -2,7 +2,13 @@
 
 All notable changes to vibepaper are documented here.
 
-## [Unreleased]
+## [0.8.0] — 2026-06-14
+
+### Added
+
+- **Graceful PDF-toolchain handling** ([#6](https://github.com/SACGF/vibepaper/issues/6)) — `--pdf` no longer dies with a raw cffi traceback when weasyprint's native libraries (pango/cairo/gdk-pixbuf/harfbuzz) are missing. It now catches the import/load failure and exits non-zero with actionable install instructions (per-platform package names plus a docs link). Two new flags let build pipelines branch on availability instead of hand-rolling an `import weasyprint` probe:
+  - `--pdf-if-available` — best-effort: build the PDF when the toolchain is present, otherwise warn and skip it (DOCX/Markdown still produced, exit 0).
+  - `--is-pdf-available` — probe only: prints `yes`/`no` and exits `0`/`1`. The probe reaches into weasyprint's actual capability (import + a tiny render) rather than guessing from a bare import.
 
 ### Changed
 

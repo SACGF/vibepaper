@@ -469,6 +469,15 @@ vibepaper --pdf
 
 The pipeline is: pandoc renders the Markdown sections to a self-contained HTML document (images embedded as data URIs), then [weasyprint](https://weasyprint.org/) converts that HTML to PDF entirely in Python. Citations and bibliography work the same as for Word output. This works well for typical manuscript content; complex layout requirements (multi-column, precise figure placement, journal-specific PDF templates) may not render as expected.
 
+**PDF system libraries.** Unlike DOCX (pandoc is bundled), PDF output needs weasyprint's native libraries (pango, cairo, gdk-pixbuf, harfbuzz). If they are missing, `--pdf` exits non-zero with install instructions instead of a raw traceback (`sudo apt-get install libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf-2.0-0 libffi-dev libcairo2` on Debian/Ubuntu; `brew install pango gdk-pixbuf libffi` on macOS; see the [weasyprint install guide](https://doc.courtbouillon.org/weasyprint/stable/first_steps.html)).
+
+For build pipelines that should produce a PDF only when the toolchain is present:
+
+```bash
+vibepaper --pdf-if-available    # builds the PDF if possible, otherwise warns and skips it (still exits 0)
+vibepaper build --is-pdf-available   # probe only: prints "yes"/"no" and exits 0/1 so a script can branch
+```
+
 ---
 
 ## CLI reference
@@ -489,7 +498,11 @@ Output:
   --output-dir DIR      Output directory for .docx files
   --name NAME           Output filename stem
   --combined            Merge supplementary into main document
-  --pdf                 Also produce a PDF alongside each .docx
+  --pdf                 Also produce a PDF alongside each .docx (errors if the
+                        weasyprint toolchain is missing)
+  --pdf-if-available    Produce a PDF when the toolchain is present, else skip it
+  --is-pdf-available    Probe the PDF toolchain; print yes/no and exit 0/1
+  --md                  Also write rendered Markdown alongside each .docx
 
 Flags:
   --verbose, -v         Print detailed progress

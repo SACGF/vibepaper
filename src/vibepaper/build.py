@@ -219,6 +219,73 @@ def build_docx(
     subprocess.run(pandoc_args(sections, output, reference_doc, bibliography, csl), check=True)
 
 
+class PdfToolchainError(RuntimeError):
+    """Raised when PDF output is requested but the weasyprint toolchain is unusable.
+
+    Covers both a missing ``weasyprint`` package and missing native libraries
+    (pango / cairo / gdk-pixbuf / harfbuzz) that weasyprint dlopens at import.
+    """
+
+
+PDF_TOOLCHAIN_HELP = (
+    "PDF output needs weasyprint and its system libraries "
+    "(pango, cairo, gdk-pixbuf, harfbuzz).\n"
+    "  Debian/Ubuntu: sudo apt-get install libpango-1.0-0 libpangocairo-1.0-0 "
+    "libgdk-pixbuf-2.0-0 libffi-dev libcairo2\n"
+    "  Fedora:        sudo dnf install pango cairo gdk-pixbuf2 libffi\n"
+    "  macOS (brew):  brew install pango gdk-pixbuf libffi\n"
+    "  Details: https://doc.courtbouillon.org/weasyprint/stable/first_steps.html\n"
+    "Or drop --pdf — DOCX and --md output do not need these (or use "
+    "--pdf-if-available to skip PDF when the toolchain is absent)."
+)
+
+
+def _silence_pdf_loggers():
+    """Quiet weasyprint/fontTools chatter unless DEBUG logging is enabled.
+
+    fontTools creates specific child loggers during font subsetting that log at
+    DEBUG/INFO even when the root logger is at WARNING; weasyprint emits harmless
+    CSS-parse warnings from pandoc's default stylesheet.
+    """
+    if log.isEnabledFor(logging.DEBUG):
+        return
+    for _name in (
+        "weasyprint",
+        "fontTools",
+        "fontTools.ttLib",
+        "fontTools.ttLib.ttFont",
+        "fontTools.subset",
+        "fontTools.subset.timer",
+    ):
+        logging.getLogger(_name).setLevel(logging.ERROR)
+
+
+def pdf_toolchain_error() -> str | None:
+    """Probe the PDF toolchain; return None if usable, else a short reason.
+
+    Reaches into weasyprint's actual capability (import + a tiny render) rather
+    than guessing from a bare import, so callers can branch reliably.
+    """
+    try:
+        import weasyprint
+    except ImportError:
+        return "weasyprint is not installed (pip install weasyprint)"
+    except OSError as e:
+        # native libs (pango/cairo/...) failed to load at import
+        return str(e)
+    _silence_pdf_loggers()
+    try:
+        weasyprint.HTML(string="<p>probe</p>").write_pdf()
+    except Exception as e:  # pragma: no cover - depends on system libraries
+        return str(e)
+    return None
+
+
+def pdf_available() -> bool:
+    """Return True if the PDF toolchain (weasyprint + system libraries) is usable."""
+    return pdf_toolchain_error() is None
+
+
 def build_pdf(
     sections: list[str],
     output: Path,
@@ -232,13 +299,20 @@ def build_pdf(
     images embedded as data URIs (--embed-resources).  weasyprint then
     converts the HTML string to PDF entirely within Python.
 
+    Raises PdfToolchainError with actionable install instructions if weasyprint
+    or its native libraries are missing.
     """
     try:
         import weasyprint
     except ImportError:
-        raise RuntimeError(
-            "PDF output requires weasyprint.\n"
-            "  pip install weasyprint"
+        raise PdfToolchainError(
+            "PDF output requires weasyprint, which is not installed.\n"
+            "  pip install weasyprint\n" + PDF_TOOLCHAIN_HELP
+        )
+    except OSError as e:
+        raise PdfToolchainError(
+            f"PDF requested but weasyprint cannot load its system libraries: {e}\n"
+            + PDF_TOOLCHAIN_HELP
         )
 
     html_args = [
@@ -261,19 +335,7 @@ def build_pdf(
     result = subprocess.run(html_args, capture_output=True, check=True, text=True)
 
     output.parent.mkdir(parents=True, exist_ok=True)
-    # fontTools creates specific child loggers during font subsetting that log
-    # at DEBUG/INFO even when the root logger is at WARNING.  Silence them
-    # explicitly unless the caller has enabled DEBUG logging.
-    if not log.isEnabledFor(logging.DEBUG):
-        for _name in (
-            "weasyprint",          # CSS parse warnings — harmless, from pandoc's default CSS
-            "fontTools",
-            "fontTools.ttLib",
-            "fontTools.ttLib.ttFont",
-            "fontTools.subset",
-            "fontTools.subset.timer",
-        ):
-            logging.getLogger(_name).setLevel(logging.ERROR)
+    _silence_pdf_loggers()
 
     log.debug("Rendering PDF %s", output)
     weasyprint.HTML(string=result.stdout).write_pdf(str(output))
@@ -288,6 +350,7 @@ def run_build(
     extra_context: dict | None = None,
     pdf: bool = False,
     md: bool = False,
+    pdf_if_available: bool = False,
 ):
     """Full pipeline: Jinja2 pass → table pass → pandoc.
 
@@ -299,6 +362,21 @@ def run_build(
     """
     today = date.today()
     paper_name = config["name"]
+
+    # Resolve whether to produce a PDF. --pdf is a hard request (build_pdf will
+    # raise a clear error if the toolchain is missing); --pdf-if-available is
+    # best-effort and silently degrades to DOCX/Markdown when it is absent.
+    do_pdf = pdf
+    if pdf_if_available and not pdf:
+        if pdf_available():
+            do_pdf = True
+        else:
+            also = " + Markdown" if md else ""
+            print(
+                f"[vibepaper] PDF toolchain not available; building DOCX{also} "
+                "only (no PDF).",
+                file=sys.stderr,
+            )
 
     facts_dir = _resolve(config["facts_dir"], project_root)
     build_dir     = _resolve(config["build_dir"], project_root)
@@ -361,7 +439,7 @@ def run_build(
     build_docx(build_paths(main_sections), main_docx, reference_doc, bibliography, csl)
     strip_bookmarks(main_docx)
     print(f"Done: {main_docx}")
-    if pdf:
+    if do_pdf:
         main_pdf = build_pdf(build_paths(main_sections), main_docx.with_suffix(".pdf"),
                              project_root, bibliography, csl)
         print(f"Done: {main_pdf}")
@@ -377,7 +455,7 @@ def run_build(
         build_docx(build_paths(config["supplementary"]), supp_docx, reference_doc, bibliography, csl)
         strip_bookmarks(supp_docx)
         print(f"Done: {supp_docx}")
-        if pdf:
+        if do_pdf:
             supp_pdf = build_pdf(build_paths(config["supplementary"]),
                                  supp_docx.with_suffix(".pdf"), project_root, bibliography, csl)
             print(f"Done: {supp_pdf}")

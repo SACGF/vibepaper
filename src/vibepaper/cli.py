@@ -7,7 +7,15 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from .build import load_config, load_json_data, load_sections_file, minimal_config, run_build
+from .build import (
+    PdfToolchainError,
+    load_config,
+    load_json_data,
+    load_sections_file,
+    minimal_config,
+    pdf_toolchain_error,
+    run_build,
+)
 
 
 def main():
@@ -199,7 +207,15 @@ def _add_build_args(parser):
     )
     parser.add_argument(
         "--pdf", action="store_true",
-        help="Also produce a PDF alongside each .docx.",
+        help="Also produce a PDF alongside each .docx (errors if the toolchain is missing).",
+    )
+    parser.add_argument(
+        "--pdf-if-available", action="store_true",
+        help="Produce a PDF when the weasyprint toolchain is present; otherwise warn and skip it.",
+    )
+    parser.add_argument(
+        "--is-pdf-available", action="store_true",
+        help="Probe whether the PDF toolchain is usable; print yes/no and exit (0 if yes, 1 if no).",
     )
     parser.add_argument(
         "--md", action="store_true",
@@ -214,6 +230,15 @@ def _add_build_args(parser):
 def _run_build(args):
     level = logging.DEBUG if args.verbose else logging.WARNING
     logging.basicConfig(level=level, format="%(message)s")
+
+    # --- Probe mode: report PDF toolchain availability and exit ---
+    if args.is_pdf_available:
+        reason = pdf_toolchain_error()
+        if reason is None:
+            print("yes")
+            sys.exit(0)
+        print(f"no: {reason}", file=sys.stderr)
+        sys.exit(1)
 
     # --- Determine sections and project_root ---
     if args.sections:
@@ -252,8 +277,13 @@ def _run_build(args):
 
     extra_context = load_json_data(args.data) if args.data else None
 
-    run_build(config, project_root, output_dir, combined=args.combined,
-              extra_context=extra_context, pdf=args.pdf, md=args.md)
+    try:
+        run_build(config, project_root, output_dir, combined=args.combined,
+                  extra_context=extra_context, pdf=args.pdf, md=args.md,
+                  pdf_if_available=args.pdf_if_available)
+    except PdfToolchainError as e:
+        print(f"error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
