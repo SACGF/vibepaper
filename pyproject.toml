@@ -37,6 +37,7 @@ dependencies = [
     "lxml>=4.0",
     "tomli>=2.0; python_version < '3.11'",
     "weasyprint>=60.0",
+    "pypandoc-binary>=1.13",
 ]
 
 [project.optional-dependencies]

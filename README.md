@@ -90,32 +90,17 @@ Now update `cohort.csv` (rerun your analysis), rebuild, and the numbers update e
 
 ## Installation
 
-**Requirements:** Python ≥ 3.10 and [pandoc](https://pandoc.org/installing.html).
+**Requirements:** Python ≥ 3.10.
 
-### 1. Install pandoc
-
-pandoc converts the rendered Markdown to Word. Install it via your system package manager:
-
-```bash
-# macOS
-brew install pandoc
-
-# Debian/Ubuntu
-sudo apt-get install pandoc
-
-# Windows (winget)
-winget install JohnMacFarlane.Pandoc
-```
-
-Verify: `pandoc --version`
-
-### 2. Install vibepaper
+### Install vibepaper
 
 ```bash
 pip install vibepaper
 ```
 
 Verify: `vibepaper --help`
+
+pandoc — which converts the rendered Markdown to Word — ships bundled with the install (via [`pypandoc-binary`](https://pypi.org/project/pypandoc-binary/)), so there is no separate system pandoc to install and no version wall (`--citeproc` needs pandoc ≥ 2.11). To use a specific pandoc instead of the bundled one, set the `PYPANDOC_PANDOC` environment variable to its path.
 
 ### Installing into a virtual environment (recommended)
 

@@ -4,6 +4,10 @@ All notable changes to vibepaper are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- **pandoc now ships bundled with the install** ([#7](https://github.com/SACGF/vibepaper/issues/7)) — vibepaper depends on [`pypandoc-binary`](https://pypi.org/project/pypandoc-binary/), which bundles a modern pandoc (3.x) inside the wheel, and resolves the pandoc binary through `pypandoc.get_pandoc_path()` instead of assuming `pandoc` on PATH. This removes the system dependency and the version wall: `--citeproc` requires pandoc ≥ 2.11, but distro pandoc is often older (Ubuntu 22.04 ships 2.9.2.1), which previously made `vibepaper build` fail with `Unknown option --citeproc`. The bundled pandoc takes priority over any older system pandoc on PATH, so a plain `pip install` now just works. Set `PYPANDOC_PANDOC` to point at a specific pandoc binary if you prefer your own.
+
 ### Fixed
 
 - **`{% include facts_dir + "/foo.md" %}` now resolves with an absolute `facts_dir`** ([#5](https://github.com/SACGF/vibepaper/issues/5)) — previously failed with a cryptic `TemplateNotFound` because Jinja's `FileSystemLoader` cannot resolve absolute template names, which is what an absolute `facts_dir` (the default under `--facts-dir`) produces. `{% include %}` is now confined to *trusted roots* — the project tree and the user-provided facts directory — and resolves both relative and absolute includes within them. Absolute paths outside every trusted root (e.g. `{% include "/etc/passwd" %}`) are refused with an explanatory error, so a template still cannot read arbitrary files on disk. `vibepaper diff` now also injects `facts_dir` into its context to match `build`, and the `--data '{"facts_dir": "..."}'` workaround is no longer needed.

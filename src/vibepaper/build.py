@@ -148,6 +148,30 @@ def strip_bookmarks(docx: Path):
     tmp.unlink()
 
 
+def pandoc_path() -> str:
+    """Resolve the pandoc executable.
+
+    Prefers the modern pandoc bundled with ``pypandoc-binary`` (pandoc 3.x,
+    which supports ``--citeproc`` — needed for citation processing and only
+    available in pandoc >= 2.11) via ``pypandoc.get_pandoc_path()``.  That
+    bundled binary takes priority over any (possibly ancient) system pandoc
+    on PATH, so a plain ``pip install`` is enough and there is no version
+    wall.  Set the ``PYPANDOC_PANDOC`` environment variable to force a
+    specific pandoc binary.  If pypandoc is not installed at all, fall back
+    to a bare ``pandoc`` on PATH.
+    """
+    try:
+        import pypandoc
+    except ImportError:
+        return "pandoc"
+    try:
+        return pypandoc.get_pandoc_path()
+    except OSError:
+        # pypandoc installed but no pandoc found (e.g. plain pypandoc with no
+        # bundled binary); let the PATH lookup surface a clear error.
+        return "pandoc"
+
+
 def pandoc_args(
     sections: list[str],
     output: Path,
@@ -157,7 +181,7 @@ def pandoc_args(
 ) -> list[str]:
     """Build pandoc command."""
     args = [
-        "pandoc",
+        pandoc_path(),
         *sections,
         "--from", "markdown",
         "--to", "docx",
@@ -218,7 +242,7 @@ def build_pdf(
         )
 
     html_args = [
-        "pandoc",
+        pandoc_path(),
         *sections,
         "--from", "markdown",
         "--to", "html5",

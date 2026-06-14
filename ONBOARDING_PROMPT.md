@@ -86,8 +86,7 @@ Call `write_facts()` at the end of each script's `main()` so the CSVs are always
 ### Step 4 — Install vibepaper
 
 ```bash
-pip install vibepaper
-sudo apt-get install pandoc   # macOS: brew install pandoc
+pip install vibepaper   # bundles pandoc via pypandoc-binary; no system pandoc needed
 ```
 
 Add `vibepaper` to `requirements.txt` or `requirements.in` so it's tracked as a dependency.
