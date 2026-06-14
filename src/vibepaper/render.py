@@ -66,9 +66,19 @@ def make_jinja_env(project_root: Path) -> Environment:
         """Integer with thousands separator: 254129 → '254,129'"""
         return f"{int(float(value)):,}"
 
-    def filter_pct(value, decimals=1) -> str:
-        """Format a pre-computed percentage: 52.2 → '52.2%'"""
-        return f"{float(value):.{decimals}f}%"
+    def filter_pct(value, decimals=1):
+        """Removed. The name invited passing a fraction; the contract wanted a
+        pre-multiplied percent — a silent magnitude bug. Use ``dp`` + a literal
+        ``%`` so the call site is unambiguous. See issue #4."""
+        raise RuntimeError(
+            "The `pct` filter has been removed (issue #4). It formatted a "
+            "pre-multiplied percent but its name invited passing a fraction, "
+            "which silently rendered the wrong magnitude (0.923 → '0.9%').\n"
+            "Fix: emit pre-multiplied percent values from your fact scripts, "
+            "then format in the template with `dp` plus a literal percent sign:\n"
+            f"    {{{{ value | dp({decimals}) }}}}%\n"
+            "e.g.  {{ rate | pct(1) }}  ->  {{ rate | dp(1) }}%"
+        )
 
     def filter_fold(value, decimals=1) -> str:
         """Fold change: 2.003 → '2.0-fold'"""

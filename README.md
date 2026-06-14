@@ -204,11 +204,12 @@ vibepaper uses [Jinja2](https://jinja.palletsprojects.com/) for template substit
 |---|---|---|
 | `\| commas` | `{{ n \| commas }}` | `254,129` |
 | `\| dp(n)` | `{{ mean \| dp(1) }}` | `9.2` |
-| `\| pct(n)` | `{{ rate \| pct(1) }}` | `52.2%` |
 | `\| fold(n)` | `{{ ratio \| fold(1) }}` | `2.0-fold` |
 | `\| fmt(spec)` | `{{ v \| fmt('+.1f') }}` | `+3.7` |
 
-`dp` (decimal places) is for numbers that will have surrounding text (e.g. "mean TPV was 9.2"). `pct` appends the `%` sign. Use `fmt` for any format string Python's `format()` accepts.
+`dp` (decimal places) is for numbers that will have surrounding text (e.g. "mean TPV was 9.2"). Use `fmt` for any format string Python's `format()` accepts.
+
+**Percentages:** fact scripts emit pre-multiplied percent values (a rate of 0.522 is stored as `52.2`); templates only format them — `{{ rate \| dp(1) }}%` → `52.2%`. There is deliberately no `pct` filter: its name invited passing a fraction while it expected an already-multiplied percent, which silently rendered the wrong magnitude (`0.923` → `0.9%` instead of `92.3%`). See issue #4.
 
 ### Examples
 

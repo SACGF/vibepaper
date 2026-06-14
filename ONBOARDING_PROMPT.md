@@ -13,9 +13,10 @@ We are going to set up [vibepaper](https://pypi.org/project/vibepaper/) in this 
 `namespace` is a CSV filename stem, `field` is a column name, and `filter` is one of:
 - `commas` — thousands separator: 254129 → "254,129"
 - `dp` / `dp(2)` — decimal places: 9.177 → "9.2"
-- `pct` / `pct(0)` — percentage: 52.2 → "52.2%"
 - `fold` — fold change suffix: 2.0 → "2.0-fold"
 - `fmt('.2e')` — raw Python format spec escape hatch
+
+**Percentages:** emit pre-multiplied percent values from your fact scripts (store a rate of 0.522 as `52.2`), then format in the template with `dp` and a literal `%`: `{{ rate | dp(1) }}%` → "52.2%". Do not store fractions and multiply in the template — there is no `pct` filter (removed in issue #4 because it silently rendered the wrong magnitude).
 
 Each 1-row CSV in `output/facts/` becomes a template namespace:
 ```

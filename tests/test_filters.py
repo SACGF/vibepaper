@@ -47,20 +47,18 @@ def test_dp_rounding_direction(render):
     assert render("{{ v | dp(1) }}", v=4.64) == "4.6"
 
 
-# --- pct ---
+# --- pct (removed: issue #4) ---
 
-def test_pct_basic(render):
-    assert render("{{ v | pct }}", v=52.2) == "52.2%"
-
-def test_pct_zero_places(render):
-    assert render("{{ v | pct(0) }}", v=52.7) == "53%"
-
-def test_pct_two_places(render):
-    assert render("{{ v | pct(2) }}", v=0.123) == "0.12%"
-
-def test_pct_appends_percent_sign(render):
-    result = render("{{ v | pct }}", v=10.0)
-    assert result.endswith("%")
+def test_pct_removed_raises_with_guidance(render):
+    # `pct` was removed because its name invited passing a fraction while its
+    # contract wanted a pre-multiplied percent — a silent magnitude bug.
+    # It now fails loudly and points at the replacement.
+    import pytest
+    with pytest.raises(RuntimeError) as exc:
+        render("{{ v | pct(1) }}", v=52.2)
+    message = str(exc.value)
+    assert "issue #4" in message
+    assert "dp" in message
 
 
 # --- fold ---
