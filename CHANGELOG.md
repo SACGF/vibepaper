@@ -2,7 +2,7 @@
 
 All notable changes to vibepaper are documented here.
 
-## [Unreleased]
+## [0.9.0] — 2026-11-05
 
 ### Added
 
