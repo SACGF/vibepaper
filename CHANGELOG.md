@@ -2,6 +2,14 @@
 
 All notable changes to vibepaper are documented here.
 
+## [Unreleased]
+
+### Added
+
+- **Google Docs sync setup guide** ([#8](https://github.com/SACGF/vibepaper/issues/8)): a step-by-step "Setting up Google Docs sync" section in the README covers enabling the Docs API, the consent screen (External, with yourself added as a test user), creating a **Desktop app** OAuth client, the "unverified app" screen on first sign-in, headless use, and troubleshooting.
+- **`vibepaper sync` checks `credentials.json` up front.** A "Web application" client secret, or one that is not valid JSON, is now rejected before the browser flow starts, with an error that says how to fix it. Missing credentials and missing sync extras now print a clean error instead of a traceback.
+- **`vibepaper sync` warns when `.vibepaper/` is not gitignored**, because that directory holds the OAuth client secret and refresh token.
+
 ## [0.8.0] — 2026-06-14
 
 ### Added

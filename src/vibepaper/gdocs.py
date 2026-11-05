@@ -39,6 +39,65 @@ def _check_imports():
 # Authentication
 # ---------------------------------------------------------------------------
 
+SETUP_DOCS_URL = "https://github.com/SACGF/vibepaper#setting-up-google-docs-sync"
+
+
+def check_client_secret(client_secret: Path) -> None:
+    """Fail early, with setup guidance, if the OAuth client secret is unusable.
+
+    The installed-app flow only works with a "Desktop app" OAuth client, whose
+    JSON has a top-level ``"installed"`` key. A "Web application" client (top-level
+    ``"web"``) looks superficially fine but fails later in the browser flow, so it
+    is rejected here instead. See issue #8.
+    """
+    if not client_secret.exists():
+        raise FileNotFoundError(
+            f"Google OAuth client secret not found at {client_secret}.\n"
+            "Create an OAuth client ID of type 'Desktop app' in Google Cloud Console\n"
+            "(APIs & Services → Credentials), download the JSON and save it as\n"
+            f".vibepaper/credentials.json. Step-by-step: {SETUP_DOCS_URL}"
+        )
+    try:
+        data = json.loads(client_secret.read_text())
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise ValueError(
+            f"{client_secret} is not valid JSON ({exc}). Re-download the OAuth "
+            f"client secret from Google Cloud Console. See {SETUP_DOCS_URL}"
+        ) from exc
+    if not isinstance(data, dict) or "installed" not in data:
+        kind = "a 'Web application'" if isinstance(data, dict) and "web" in data else "not a 'Desktop app'"
+        raise ValueError(
+            f"{client_secret} is {kind} OAuth client secret.\n"
+            "vibepaper sync uses the installed-app (local browser) flow, which needs\n"
+            "an OAuth client ID of type 'Desktop app' (its JSON has a top-level\n"
+            "\"installed\" key). Create one under APIs & Services → Credentials →\n"
+            f"Create credentials → OAuth client ID → Desktop app. See {SETUP_DOCS_URL}"
+        )
+
+
+def credentials_tracked_by_git(project_root: Path) -> bool:
+    """Return True if ``project_root`` is in a git repo that does *not* ignore
+    ``.vibepaper/``. False when it is ignored, or when git/a repo is absent."""
+    import subprocess
+
+    probe = f"{CREDENTIALS_DIR}/{TOKEN_FILE}"
+    try:
+        inside = subprocess.run(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            cwd=project_root, capture_output=True, text=True,
+        )
+        if inside.returncode != 0:
+            return False
+        ignored = subprocess.run(
+            ["git", "check-ignore", "-q", probe],
+            cwd=project_root, capture_output=True,
+        )
+    except (FileNotFoundError, OSError):
+        return False
+    # check-ignore: 0 = ignored, 1 = not ignored, 128 = error
+    return ignored.returncode == 1
+
+
 def get_credentials(project_root: Path):
     """Obtain OAuth2 credentials, prompting for browser auth if needed.
 
@@ -46,21 +105,16 @@ def get_credentials(project_root: Path):
     from Google Cloud Console).  Stores refresh token in
     .vibepaper/token.json (should be .gitignored).
     """
-    _check_imports()
-    from google.oauth2.credentials import Credentials
-    from google_auth_oauthlib.flow import InstalledAppFlow
-    from google.auth.transport.requests import Request
-
     cred_dir = project_root / CREDENTIALS_DIR
     token_path = cred_dir / TOKEN_FILE
     client_secret = cred_dir / "credentials.json"
 
-    if not client_secret.exists():
-        raise FileNotFoundError(
-            f"Google OAuth client secret not found at {client_secret}.\n"
-            "Download it from Google Cloud Console → APIs & Services → Credentials\n"
-            "and save it as .vibepaper/credentials.json"
-        )
+    check_client_secret(client_secret)
+
+    _check_imports()
+    from google.oauth2.credentials import Credentials
+    from google_auth_oauthlib.flow import InstalledAppFlow
+    from google.auth.transport.requests import Request
 
     creds = None
     if token_path.exists():

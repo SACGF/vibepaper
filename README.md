@@ -532,8 +532,9 @@ vibepaper sync [--config FILE] [--dry-run] [--verbose]
   On first run, creates a new Google Doc. On subsequent runs, diffs against
   the last-synced version and pushes only changed paragraphs.
 
-  Requires .vibepaper/credentials.json (OAuth client secret from Google Cloud
-  Console). Will open a browser for authentication on first use.
+  Requires .vibepaper/credentials.json (a "Desktop app" OAuth client secret
+  from Google Cloud Console). Will open a browser for authentication on first
+  use. See "Setting up Google Docs sync" below. Keep .vibepaper/ out of git.
 
   Install sync dependencies:  pip install vibepaper[sync]
 
@@ -543,11 +544,55 @@ vibepaper sync [--config FILE] [--dry-run] [--verbose]
 
 ---
 
+## Setting up Google Docs sync
+
+`vibepaper sync` pushes each rebuild into a Google Doc as tracked-change suggestions, so collaborators' comments survive. It needs a one-time Google Cloud setup to get an OAuth client secret. This is free and needs no app verification for personal or lab use.
+
+1. **Install the sync extras:** `pip install vibepaper[sync]`
+2. **Create (or pick) a Google Cloud project** at [console.cloud.google.com](https://console.cloud.google.com/).
+3. **Enable the Google Docs API:** APIs & Services → Library → *Google Docs API* → Enable. vibepaper only requests the `https://www.googleapis.com/auth/documents` scope, so the Drive API is **not** needed. If you skip this step, the first sync fails at `batchUpdate`.
+4. **Configure the OAuth consent screen:** APIs & Services → OAuth consent screen (called *Google Auth Platform* in newer consoles).
+   - User type **External** (or Internal if you are on a Google Workspace org and only org members will sync).
+   - Fill in the app name and your email; no other fields are needed.
+   - Leave the app in **Testing**. You do not need to publish it or have it verified.
+   - Under **Test users**, **add the Google account you will sign in with**. While the app is in Testing, Google rejects sign-in from any account that is not on this list.
+5. **Create the OAuth client:** APIs & Services → Credentials → Create credentials → OAuth client ID → Application type **Desktop app**.
+   - It must be **Desktop app**, not *Web application*. vibepaper uses the installed-app flow (a local browser redirect), which only works with Desktop clients. You can check the downloaded JSON: a Desktop secret has a top-level `"installed"` key, a Web one has `"web"`. vibepaper refuses a Web secret with an explanatory error.
+6. **Download the JSON** and save it as `.vibepaper/credentials.json` in your project root (next to `paper.toml`).
+7. **Keep `.vibepaper/` out of git.** It holds the client secret and, after the first sync, a refresh token (`token.json`) that grants access to your Google Docs. Add this to your project's `.gitignore`:
+   ```
+   /.vibepaper/
+   ```
+   `vibepaper sync` prints a warning if it finds `.vibepaper/` is not ignored.
+8. **Build, then run the first sync:**
+   ```bash
+   vibepaper
+   vibepaper sync
+   ```
+   A browser opens for sign-in. Because the app is unverified you will see **"Google hasn't verified this app"**. This is expected for your own Testing app: click **Advanced → Go to *(app name)* (unsafe)**, then allow access. The token is cached in `.vibepaper/token.json`, so later syncs do not open a browser.
+
+The first sync creates a new Google Doc and prints its URL. Share it with collaborators as usual. Later syncs push only the changed paragraphs as suggestions (use `--dry-run` to preview them).
+
+**Headless / CI use:** the first authorization has to happen in a browser. Run `vibepaper sync` once on a machine with a browser, then copy `.vibepaper/token.json`, `credentials.json` and `sync_state.json` to the headless machine, for example from a CI secret. Do not commit them.
+
+**Troubleshooting**
+
+| Symptom | Likely cause |
+|---|---|
+| `Error 403: access_denied` in the browser | Your account is not listed under Test users on the consent screen |
+| `... is a 'Web application' OAuth client secret` | The client was created as Web application; create a Desktop app client instead |
+| `Google Docs API has not been used in project ... or it is disabled` | Enable the Google Docs API (step 3) |
+| `invalid_grant` / token expired | Delete `.vibepaper/token.json` and re-run to sign in again. Refresh tokens for apps in Testing expire after 7 days |
+
+---
+
 ## Project layout convention
 
 ```
 my_paper/
 ├── paper.toml
+├── .gitignore                ← include /.vibepaper/ if you use sync
+├── .vibepaper/               ← sync credentials + state (secrets, never commit)
 ├── paper/
 │   ├── abstract.md
 │   ├── introduction.md
