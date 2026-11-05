@@ -5,6 +5,7 @@ Replaces {{ namespace.field | filter }} references with values loaded from
 that inline prose values are resolved before table directives are expanded.
 """
 
+import functools
 import logging
 import re
 from pathlib import Path
@@ -19,6 +20,9 @@ from jinja2 import (
     TemplateNotFound,
     UndefinedError,
 )
+
+from .assertions import AssertExtension, FactAssertionError
+from .words import DEFAULT_SPELL_OUT_UP_TO, FILTERS as WORD_FILTERS
 
 log = logging.getLogger(__name__)
 
@@ -94,7 +98,9 @@ class _TrustedAbsoluteLoader(BaseLoader):
 
 
 def make_jinja_env(
-    project_root: Path, extra_search_paths: list[Path] | None = None
+    project_root: Path,
+    extra_search_paths: list[Path] | None = None,
+    spell_out_up_to: int = DEFAULT_SPELL_OUT_UP_TO,
 ) -> Environment:
     """Create a Jinja2 environment with custom filters and strict undefined.
 
@@ -106,6 +112,10 @@ def make_jinja_env(
     the trusted roots so a template cannot read arbitrary files on disk. See
     issue #5 and ``render_file`` for the error produced when an include falls
     outside these roots.
+
+    Also registers the word filters (``approx``, ``orders_of_magnitude``, ...)
+    and the ``{% assert %}`` tag (issue #9). ``spell_out_up_to`` is the largest
+    integer that word filters spell out ("three" rather than "3").
     """
     extra = list(extra_search_paths or [])
     trusted_roots = [project_root, *extra]
@@ -119,6 +129,7 @@ def make_jinja_env(
         loader=loader,
         undefined=StrictUndefined,
         keep_trailing_newline=True,
+        extensions=[AssertExtension],
     )
 
     def filter_commas(value) -> str:
@@ -157,6 +168,11 @@ def make_jinja_env(
     env.filters["dp"] = filter_dp
     env.filters["fmt"] = filter_fmt
 
+    for name, fn in WORD_FILTERS.items():
+        if name in ("approx", "orders_of_magnitude", "number_word"):
+            fn = functools.partial(fn, spell_out_up_to=spell_out_up_to)
+        env.filters[name] = fn
+
     return env
 
 
@@ -171,6 +187,12 @@ def render_file(
     try:
         rendered = env.from_string(content).render(**context)
     except UndefinedError as exc:
+        raise RuntimeError(f"Template error in {input_path}: {exc}") from exc
+    except FactAssertionError as exc:
+        raise RuntimeError(exc.describe(str(input_path))) from exc
+    except ValueError as exc:
+        # Word filters raise ValueError when the claim no longer fits the fact
+        # (e.g. within_pct above 50%).
         raise RuntimeError(f"Template error in {input_path}: {exc}") from exc
     except TemplateNotFound as exc:
         # {% include %} is confined to trusted roots (the project tree and the

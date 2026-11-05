@@ -150,3 +150,52 @@ class TestFormatDiff:
         output = format_diff(changes)
         assert "OLD" in output
         assert "NEW" in output
+
+
+# --- facts cache and fact-level diff (issue #9) ---
+
+class TestFactsDiff:
+    def test_flatten_skips_facts_dir_and_converts_numpy(self):
+        import numpy as np
+        from vibepaper.diff import flatten_facts
+        flat = flatten_facts({
+            "facts_dir": "/x",
+            "bench": {"tps": np.float64(16.0), "n": np.int64(3), "missing": float("nan")},
+            "top": 5,
+        })
+        assert flat == {"bench.tps": 16.0, "bench.n": 3, "bench.missing": None, "top": 5}
+
+    def test_cache_round_trip(self, tmp_path):
+        from vibepaper.diff import save_facts_cache, load_facts_cache
+        assert load_facts_cache(tmp_path) is None
+        save_facts_cache({"b": {"x": 1.5}}, tmp_path)
+        assert load_facts_cache(tmp_path) == {"b.x": 1.5}
+
+    def test_diff_and_references(self):
+        from vibepaper.diff import diff_facts, find_fact_references, format_fact_changes
+        changes = diff_facts(
+            {"b.tps": 16, "b.same": 1, "b.gone": 2, "b.unused": 1},
+            {"b.tps": 111, "b.same": 1, "b.new": 3, "b.unused": 2},
+        )
+        assert [(c.name, c.action) for c in changes] == [
+            ("b.gone", "removed"), ("b.new", "added"), ("b.tps", "changed"), ("b.unused", "changed"),
+        ]
+        find_fact_references(changes, {
+            "abstract.md": "{{ b.tps }}",
+            "results.md": "{{ b.tps | dp(1) }} and {{ b.tps }}; {{ b.tps_other }} {{ b.new }}",
+        })
+        out = format_fact_changes(changes)
+        assert "b.tps 16 → 111 (+594%), referenced in abstract.md, results.md ×2" in out
+        assert "b.new (new) 3, referenced in results.md" in out
+        assert "b.unused" not in out
+        assert "+2 changed fact(s) not referenced" in out
+
+    def test_stale_wording_only_for_changed_facts(self):
+        from vibepaper.diff import FactChange, format_stale_wording
+        from vibepaper.lint import lint_text
+        findings = lint_text(
+            "Under {{ b.tps }} per second.\n\nNearly {{ b.other }} of them.\n", "r.md"
+        )
+        out = format_stale_wording(findings, [FactChange("b.tps", 16, 111, [])])
+        assert "r.md:1: under" in out
+        assert "nearly" not in out

@@ -93,14 +93,50 @@ def main():
         help="Show paragraph-level changes since last build.",
         description=(
             "Compare the current rendered output against the cached previous\n"
-            "render and show which paragraphs changed. Run 'vibepaper build'\n"
-            "first to establish a baseline."
+            "render and show which facts changed (by name, with where the paper\n"
+            "uses them), which sentences use a changed fact beside claim words\n"
+            "that no word filter or assert checks (see 'vibepaper lint'), and\n"
+            "which paragraphs changed. Run 'vibepaper build' first to establish\n"
+            "a baseline."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     diff_parser.add_argument(
         "--config", default="paper.toml", metavar="FILE",
         help="paper.toml config file (default: paper.toml in cwd).",
+    )
+
+    # -- lint ---------------------------------------------------------------
+    lint_parser = subparsers.add_parser(
+        "lint",
+        help="List claim words next to facts that no word filter or assert checks.",
+        description=(
+            "List every sentence that references a {{ fact }} and contains a claim\n"
+            "word (rises, falls, within, nearly, all, every, dominated, ...) where\n"
+            "the paragraph has neither a word filter (approx, within_pct, ...) nor\n"
+            "an {% assert %}. Add {# lint-ok: reason #} to a paragraph to accept\n"
+            "its wording as-is.\n\n"
+            "When facts are available, also flags facts that round to 100.0 / 0.0\n"
+            "beside a totality word ('every', 'none').\n\n"
+            "Lints the sections in paper.toml, or the FILE.md arguments."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    lint_parser.add_argument(
+        "files", nargs="*", type=Path, metavar="FILE.md",
+        help="Markdown files to lint (default: sections in paper.toml).",
+    )
+    lint_parser.add_argument(
+        "--config", default="paper.toml", metavar="FILE",
+        help="paper.toml config file (default: paper.toml in cwd).",
+    )
+    lint_parser.add_argument(
+        "--facts-dir", metavar="DIR",
+        help="Facts directory for the rounding check (overrides paper.toml).",
+    )
+    lint_parser.add_argument(
+        "--check", action="store_true",
+        help="Exit 1 if anything is flagged (for CI).",
     )
 
     # -- sync ---------------------------------------------------------------
@@ -137,7 +173,7 @@ def main():
     # -- Parse --------------------------------------------------------------
     # If the first arg doesn't look like a subcommand, treat it as a build.
     # This keeps `vibepaper paper.toml` and `vibepaper intro.md` working.
-    known_commands = {"build", "fetch-csl", "wrap", "diff", "sync", "-h", "--help"}
+    known_commands = {"build", "fetch-csl", "wrap", "diff", "lint", "sync", "-h", "--help"}
     if len(sys.argv) > 1 and sys.argv[1] not in known_commands:
         args = build_parser.parse_args(sys.argv[1:])
         args.command = "build"
@@ -156,6 +192,8 @@ def main():
         _run_wrap(args)
     elif args.command == "diff":
         _run_diff(args)
+    elif args.command == "lint":
+        _run_lint(args)
     elif args.command == "sync":
         _run_sync(args)
 
@@ -346,9 +384,48 @@ def _run_wrap(args):
 # diff
 # ---------------------------------------------------------------------------
 
+def _facts_context(facts_dir: Path) -> dict:
+    """Template context from a facts directory, as ``build`` assembles it."""
+    from .render import load_facts
+
+    context: dict = {"facts_dir": str(facts_dir)}
+    if facts_dir.exists():
+        context.update(load_facts(facts_dir))
+    return context
+
+
+def _paper_env(project_root: Path, config: dict, facts_dir: Path):
+    from .render import make_jinja_env
+    from .words import DEFAULT_SPELL_OUT_UP_TO
+
+    return make_jinja_env(
+        project_root,
+        extra_search_paths=[facts_dir] if facts_dir.exists() else None,
+        spell_out_up_to=config.get("spell_out_up_to", DEFAULT_SPELL_OUT_UP_TO),
+    )
+
+
+def _source_texts(project_root: Path, sections: list[str]) -> dict[str, str]:
+    texts = {}
+    for section in sections:
+        path = Path(section) if Path(section).is_absolute() else project_root / section
+        if path.exists():
+            try:
+                name = str(path.relative_to(project_root))
+            except ValueError:
+                name = str(path)
+            texts[name] = path.read_text()
+    return texts
+
+
 def _run_diff(args):
-    from .diff import load_cache, concatenate_sections, diff_paragraphs, format_diff
-    from .render import load_facts, make_jinja_env, render_file as render_jinja
+    from .diff import (
+        load_cache, concatenate_sections, diff_paragraphs, format_diff,
+        load_facts_cache, flatten_facts, diff_facts, find_fact_references,
+        format_fact_changes, format_stale_wording,
+    )
+    from .lint import lint_files
+    from .render import render_file as render_jinja
     from .tables import process_file as render_tables
 
     config_path = Path(args.config).resolve()
@@ -368,20 +445,14 @@ def _run_diff(args):
             file=sys.stderr,
         )
         sys.exit(1)
+    old_facts = load_facts_cache(build_dir)
 
     # Re-render current state (Jinja2 + tables, no pandoc)
     facts_dir = project_root / config["facts_dir"]
     build_jinja = build_dir / "jinja" / "paper"
 
-    context: dict = {}
-    context["facts_dir"] = str(facts_dir)
-    if facts_dir.exists():
-        context.update(load_facts(facts_dir))
-
-    jinja_env = make_jinja_env(
-        project_root,
-        extra_search_paths=[facts_dir] if facts_dir.exists() else None,
-    )
+    context = _facts_context(facts_dir)
+    jinja_env = _paper_env(project_root, config, facts_dir)
     all_sections = config["sections"] + config["supplementary"]
 
     for section in all_sections:
@@ -391,9 +462,65 @@ def _run_diff(args):
         section_name = Path(section).name
         render_tables(build_jinja / section_name, build_paper, project_root)
 
+    # Which facts changed, by name, and where the paper uses them
+    if old_facts is not None:
+        fact_changes = diff_facts(old_facts, flatten_facts(context))
+        find_fact_references(fact_changes, _source_texts(project_root, all_sections))
+        report = format_fact_changes(fact_changes)
+        if report:
+            print(report)
+        if fact_changes:
+            paths = [project_root / s for s in all_sections]
+            stale = format_stale_wording(lint_files(paths, project_root), fact_changes)
+            if stale:
+                print(stale)
+
     new_text = concatenate_sections(build_paper, all_sections)
     changes = diff_paragraphs(old_text, new_text)
     print(format_diff(changes))
+
+
+# ---------------------------------------------------------------------------
+# lint
+# ---------------------------------------------------------------------------
+
+def _run_lint(args):
+    from .lint import lint_files, format_findings
+
+    config_path = Path(args.config).resolve()
+    if config_path.exists():
+        config = load_config(config_path)
+        project_root = config_path.parent
+    else:
+        if not args.files:
+            print(
+                f"error: {config_path} not found. Pass .md files or create a paper.toml.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        config = minimal_config([str(f) for f in args.files])
+        project_root = Path.cwd()
+
+    if args.files:
+        paths = [f.resolve() for f in args.files]
+    else:
+        paths = [
+            Path(s) if Path(s).is_absolute() else project_root / s
+            for s in config["sections"] + config["supplementary"]
+        ]
+
+    facts_dir = Path(args.facts_dir) if args.facts_dir else Path(config["facts_dir"])
+    if not facts_dir.is_absolute():
+        facts_dir = (Path.cwd() if args.facts_dir else project_root) / facts_dir
+    env = context = None
+    if facts_dir.exists():
+        context = _facts_context(facts_dir)
+        env = _paper_env(project_root, config, facts_dir)
+
+    findings = lint_files(paths, project_root, env, context)
+    print(format_findings(findings))
+    if args.check and findings:
+        sys.exit(1)
 
 
 # ---------------------------------------------------------------------------

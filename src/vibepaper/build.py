@@ -12,7 +12,8 @@ from pathlib import Path
 
 from lxml import etree
 
-from .diff import concatenate_sections, save_cache
+from .diff import concatenate_sections, save_cache, save_facts_cache
+from .words import DEFAULT_SPELL_OUT_UP_TO
 
 log = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ def load_config(config_path: Path) -> dict:
       paper.output_dir      = "output"
       paper.build_dir       = "build"
       paper.reference_doc   = "paper/reference.docx"  (only used if file exists)
+      paper.spell_out_up_to = 10  (word filters spell out integers up to this)
     """
     with open(config_path, "rb") as fh:
         raw = tomllib.load(fh)
@@ -57,6 +59,7 @@ def load_config(config_path: Path) -> dict:
         "reference_doc": paper.get("reference_doc", "paper/reference.docx"),
         "bibliography":  paper.get("bibliography", None),
         "csl":           paper.get("csl", None),
+        "spell_out_up_to": int(paper.get("spell_out_up_to", DEFAULT_SPELL_OUT_UP_TO)),
     }
 
 
@@ -72,6 +75,7 @@ def minimal_config(sections: list[str], name: str | None = None) -> dict:
         "reference_doc": "paper/reference.docx",
         "bibliography":  None,
         "csl":           None,
+        "spell_out_up_to": DEFAULT_SPELL_OUT_UP_TO,
     }
 
 
@@ -410,6 +414,7 @@ def run_build(
     jinja_env = make_jinja_env(
         project_root,
         extra_search_paths=[facts_dir] if facts_dir.exists() else None,
+        spell_out_up_to=config.get("spell_out_up_to", DEFAULT_SPELL_OUT_UP_TO),
     )
 
     jinja_warnings = []
@@ -429,6 +434,7 @@ def run_build(
     # Cache rendered markdown for diff/sync
     rendered_text = concatenate_sections(build_paper, all_sections)
     save_cache(rendered_text, build_dir)
+    save_facts_cache(context, build_dir)
 
     def build_paths(sections):
         return [str(build_paper / Path(s).name) for s in sections]

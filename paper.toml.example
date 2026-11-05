@@ -33,3 +33,7 @@ supplementary = ["paper/supplementary.md"]
 # Word reference document for journal formatting (double spacing, line numbers).
 # Only used if the file exists; silently skipped otherwise.
 # reference_doc = "paper/reference.docx"
+
+# Word filters (approx, orders_of_magnitude, number_word) spell out integers
+# up to this value ("three" rather than "3"). 0 disables. (default: 10)
+# spell_out_up_to = 10

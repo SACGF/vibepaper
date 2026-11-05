@@ -10,7 +10,7 @@ The name is a nod to vibe coding: give an AI agent write access to `output/facts
 
 ## Using an AI agent?
 
-Paste [`ONBOARDING_PROMPT.md`](ONBOARDING_PROMPT.md) into your LLM agent in the target project. It walks through auditing hardcoded numbers, writing facts CSVs from your analysis scripts, and verifying the build. The typical loop from there:
+Paste [`ONBOARDING_PROMPT.md`](ONBOARDING_PROMPT.md) into your LLM agent in the target project. It walks through auditing hardcoded numbers, writing facts CSVs from your analysis scripts, and verifying the build. Already using vibepaper? [`RETROFIT_PROMPT.md`](RETROFIT_PROMPT.md) converts the hand-written words next to your facts ("under 1%", "nearly a year") into word filters and asserts. The typical loop from there:
 
 - Agent reads existing paper sections and analysis scripts
 - Agent writes/updates `output/facts/*.csv` after each analysis run
@@ -194,6 +194,8 @@ vibepaper uses [Jinja2](https://jinja.palletsprojects.com/) for template substit
 
 `dp` (decimal places) is for numbers that will have surrounding text (e.g. "mean TPV was 9.2"). Use `fmt` for any format string Python's `format()` accepts.
 
+There are also **word filters** (`approx`, `orders_of_magnitude`, `within_pct`, `direction`, `article`, `number_word`) that render the qualifier *next to* a number from the fact itself. See [Words that depend on facts](#words-that-depend-on-facts).
+
 **Percentages:** fact scripts emit pre-multiplied percent values (a rate of 0.522 is stored as `52.2`); templates only format them — `{{ rate \| dp(1) }}%` → `52.2%`. There is deliberately no `pct` filter: its name invited passing a fraction while it expected an already-multiplied percent, which silently rendered the wrong magnitude (`0.923` → `0.9%` instead of `92.3%`). See issue #4.
 
 ### Examples
@@ -205,6 +207,117 @@ Of {{ clinvar.total_variants | commas }} ClinVar variants, {{ clinvar.gained_hig
 Mean transcripts per variant increased {{ vep.mean_fold | fold }} from
 {{ vep.mean_v112 | dp(1) }} to {{ vep.mean_v115 | dp(1) }}.
 ```
+
+---
+
+## Words that depend on facts
+
+vibepaper keeps the *digits* in a paper current. The *words next to the digits* also make claims about them: direction ("falls from"), magnitude ("under 1%", "two orders of magnitude"), approximation ("close to a year"), ordering ("dominated by A then B"), totality ("all 8,409,757"). When a facts CSV is refreshed, the number updates but the words do not, so the sentence can end up contradicting its own number. vibepaper gives you three tools for this, best first:
+
+1. **Word filters** generate the word from the fact, so the two cannot disagree.
+2. **`{% assert %}`** pins the condition a hand-written word depends on. The build fails if the condition stops holding.
+3. **`vibepaper lint`** and **`vibepaper diff`** list the sentences that neither of the above covers, so a re-read can start with them.
+
+### Word filters
+
+Each filter takes **one pre-computed fact**, such as a ratio, a percent difference or a delta that your script emits. There is still no arithmetic in templates.
+
+| Filter | Example | Output |
+|---|---|---|
+| `orders_of_magnitude` | `{{ bench.rest_vs_uta_ratio \| orders_of_magnitude }}` | `over two orders of magnitude` (130), `nearly three orders of magnitude` (850), `roughly two and a half orders of magnitude` (300) |
+| `within_pct` | `{{ r3.rest_vs_local_diff_pct \| within_pct }}` | `within 1%` (0.7), `within 2%` (1.5) |
+| `approx(sig=1, per=None, noun=None, plural=None)` | `{{ bench.uta_days \| approx(per=365, noun='year') }}` | `over a year` (408) |
+| | `{{ cohort.n \| approx(sig=2) }}` | `about 8,400,000` (8,409,757) |
+| | `{{ n \| approx }}` | `nearly 900` (870), `just over 1,000` (1,030) |
+| `direction(up, down, flat='is unchanged', tol=0)` | `{{ eras.delta_pct \| direction('rises', 'falls') }}` | `rises` / `falls` / `is unchanged` |
+| `article` | `{{ coverage.improvement_fold \| fold(1) \| article }}` | `an 11.5-fold` / `a 13.9-fold` |
+| `number_word` | `{{ n_cohorts \| number_word }}` | `three` (3), `12` (12) |
+
+How they choose a word:
+
+- **`approx`** rounds to an anchor: a 0.5 grid below 3 (so 1.5 and 2.5 are anchors), otherwise `sig` significant figures. Within ±2% of the anchor it says *about*, 2–10% below *nearly*, 2–5% above *just over*, and further above *over*. More than 10% below, it drops to the grid point below and says *over*. `per` divides first (days → years). With `noun`, an anchor of one reads "a year" or "an hour".
+- **`orders_of_magnitude`** uses `log10(ratio)`. Within about ±5% of a power of ten it gives the plain count, up to 0.25 decades below *nearly n*, up to 0.25 above *over n*, and otherwise *roughly n and a half*. Ratios below 1 are treated as their reciprocal. Say "faster" or "slower" yourself, or use `direction`.
+- **`within_pct`** picks the smallest band from 0.5, 1, 2, 5, 10, 20 and 50% that contains the value. Above 50% the build fails, because "within" is no longer an honest claim.
+- **`direction`** chooses by sign. You supply the verbs, so tense and register stay yours.
+- **`article`** goes by the first sound: 8, 11, 18, 80–89 and 800–899 (and 11,000 or 18,500) take *an*; vowel sounds, silent *h* and acronyms such as *an SNV* or *an HGVS* are handled.
+- Integers up to 10 are spelled out ("three"). Set `spell_out_up_to` in `paper.toml` to change this (0 turns it off).
+
+Before and after, from the vibepaper papers that prompted this ([#9](https://github.com/SACGF/vibepaper/issues/9)):
+
+| Hand-written (went stale) | With a word filter |
+|---|---|
+| `differing by under 1%` | `differing by {{ r3.diff_pct \| within_pct }}` |
+| `roughly two orders of magnitude faster` | `{{ bench.ratio \| orders_of_magnitude }} faster` |
+| `extrapolates to close to a year` | `extrapolates to {{ bench.uta_days \| approx(per=365, noun='year') }}` |
+| `an {{ fold \| fmt('.1f') }}× increase` | `{{ fold \| fold(1) \| article }} increase` |
+| `UTA falls from X% to Y%` | `UTA {{ eras.uta_delta \| direction('rises', 'falls') }} from X% to Y%` |
+
+### `{% assert %}`: make a hand-written claim checkable
+
+Some wording cannot be generated: ordering, totality, or the threshold behind a judgement word. For those, keep your words and state the condition they rely on directly above the sentence:
+
+```jinja
+{% assert residual.indel_count > residual.multi_locus_count, "'dominated by indel ... then paralog' order" %}
+... is dominated by indel-representation differences ({{ residual.indel_count | commas }}) and by
+paralog and copy-number transcripts ({{ residual.multi_locus_count | commas }}) ...
+
+{% assert vsv.n_coordinate_changes == 0, "'every one ... gives the same coordinate'" %}
+every one that resolves under the substitute gives the same coordinate
+
+{% assert eras.old_uta < eras.mid_uta and eras.recent_uta < eras.mid_uta, "UTA lowest on oldest, mid era is best" %}
+```
+
+An assert renders nothing, and its line is removed, so it does not split the paragraph below it. If the condition is false, the build fails with the message, the file and line, and every fact the condition reads:
+
+```
+RuntimeError: paper/results.md:8: assertion failed: 'dominated by indel ... then paralog' order
+    residual.indel_count = 100
+    residual.multi_locus_count = 418
+```
+
+Comparisons inside an assert do not break "no arithmetic in templates", because nothing computed is printed. Name the sentence the assert protects in its message.
+
+### `vibepaper lint`: find the wording nothing checks
+
+```bash
+vibepaper lint            # sections from paper.toml
+vibepaper lint --check    # exit 1 if anything is flagged (CI)
+```
+
+Lint lists every sentence that references a `{{ fact }}` and contains a claim word (rises, falls, higher, under, within, nearly, roughly, about, over, all, every, none, only, dominated, largest, most, doubled, -fold, versus, …), where the paragraph has neither a word filter nor an `{% assert %}`:
+
+```
+paper/results.md:3: roughly, orders of magnitude, faster
+    "REST throughput is {{ bench.rest_tps }} HGVS/s, roughly two orders of magnitude faster than UTA."
+paper/results.md:11: every
+    "Every variant matched ({{ bench.matched_pct | dp(1) }}%)."
+paper/results.md:11: {{ bench.matched_pct | dp(1) }} renders '100.0' but the value is 99.97: the rounded digits make a totality word ('all', 'every', 'none') look true
+    "Every variant matched ({{ bench.matched_pct | dp(1) }}%)."
+```
+
+The second kind of finding needs facts, and is reported even in covered paragraphs: a value that only *rounds* to 100.0 or 0.0 next to "every" or "none".
+
+For a word that really is a hedge or a judgement ("just", "only", "striking"), accept it by adding `{# lint-ok: reason #}` anywhere in the paragraph. Put the comment at the end of a line rather than on a line of its own, so it does not leave a blank line in the output.
+
+### `vibepaper diff`: what changed, and which words to re-read
+
+`vibepaper build` caches the facts it used (`build/.last_facts.json`) alongside the rendered Markdown. After you refresh the CSVs, `vibepaper diff` reports which facts changed, by name and by how much, and where the paper uses them. It then lists the unchecked sentences that use a changed fact, and finally the changed paragraphs:
+
+```
+3 fact(s) referenced in the paper changed:
+  bench.diff_pct 0.7 → 1.5 (+114%), referenced in paper/results.md ×2
+  bench.ratio 130 → 850 (+554%), referenced in paper/results.md
+  bench.rest_tps 16 → 111 (+594%), referenced in paper/results.md ×2
+
+2 sentence(s) use a changed fact beside unchecked claim words (re-read these):
+  paper/results.md:3: roughly, orders of magnitude, faster
+      "REST throughput is {{ bench.rest_tps }} HGVS/s, roughly two orders of magnitude faster than UTA."
+  ...
+```
+
+### Retrofitting an existing paper
+
+[`RETROFIT_PROMPT.md`](RETROFIT_PROMPT.md) is an agent prompt for papers that already use vibepaper. It works through the `vibepaper lint` output and converts each flagged sentence to a word filter, an assert, or a documented `lint-ok`.
 
 ---
 
@@ -445,6 +558,11 @@ bibliography = "paper/references.bib"
 # CSL citation style file. Download from zotero.org/styles.
 # Falls back to pandoc's default (Chicago author-date) if omitted.
 csl = "paper/vancouver.csl"
+
+# Word filters (approx, orders_of_magnitude, number_word) spell out integers
+# up to this value ("three" rather than "3"). 0 disables.
+# Default: 10
+spell_out_up_to = 10
 ```
 
 ### Word reference document
@@ -525,6 +643,22 @@ vibepaper wrap <FILE.md ...> [--width N] [--check]
   vibepaper wrap paper/results.md              # in-place, default 88 cols
   vibepaper wrap paper/*.md --width 72         # custom width
   vibepaper wrap paper/*.md --check            # exit 1 if changes needed (CI)
+
+vibepaper lint [FILE.md ...] [--config FILE] [--facts-dir DIR] [--check]
+
+  List sentences that reference a {{ fact }} and contain a claim word
+  (rises, within, nearly, all, every, dominated, ...) with no word filter or
+  {% assert %} in the paragraph, and facts that round to 100.0/0.0 beside
+  "every"/"none". Mark a paragraph {# lint-ok: reason #} to accept it.
+
+  vibepaper lint                               # sections from paper.toml
+  vibepaper lint --check                       # exit 1 if anything flagged (CI)
+
+vibepaper diff [--config FILE]
+
+  Compare the current render against the last build: which facts changed
+  (by name, with where they are used), which unchecked sentences use a
+  changed fact, and which paragraphs changed.
 
 vibepaper sync [--config FILE] [--dry-run] [--verbose]
 
