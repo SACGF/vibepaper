@@ -286,3 +286,55 @@ class TestBuildSuggestionRequests:
                     first_start = idx
                     assert idx == 50
                     break
+
+
+# ---------------------------------------------------------------------------
+# check_client_secret (issue #8)
+# ---------------------------------------------------------------------------
+
+class TestCheckClientSecret:
+    def test_missing_file_points_at_setup_docs(self, tmp_path):
+        from vibepaper.gdocs import check_client_secret
+        with pytest.raises(FileNotFoundError, match="Desktop app"):
+            check_client_secret(tmp_path / "credentials.json")
+
+    def test_desktop_client_accepted(self, tmp_path):
+        from vibepaper.gdocs import check_client_secret
+        path = tmp_path / "credentials.json"
+        path.write_text(json.dumps({"installed": {"client_id": "x"}}))
+        check_client_secret(path)  # no error
+
+    def test_web_client_rejected(self, tmp_path):
+        from vibepaper.gdocs import check_client_secret
+        path = tmp_path / "credentials.json"
+        path.write_text(json.dumps({"web": {"client_id": "x"}}))
+        with pytest.raises(ValueError, match="Web application"):
+            check_client_secret(path)
+
+    def test_invalid_json_rejected(self, tmp_path):
+        from vibepaper.gdocs import check_client_secret
+        path = tmp_path / "credentials.json"
+        path.write_text("not json")
+        with pytest.raises(ValueError, match="not valid JSON"):
+            check_client_secret(path)
+
+
+class TestCredentialsTrackedByGit:
+    def _git(self, path, *args):
+        import subprocess
+        subprocess.run(["git", *args], cwd=path, check=True, capture_output=True)
+
+    def test_not_a_repo(self, tmp_path):
+        from vibepaper.gdocs import credentials_tracked_by_git
+        assert credentials_tracked_by_git(tmp_path) is False
+
+    def test_repo_without_ignore_warns(self, tmp_path):
+        from vibepaper.gdocs import credentials_tracked_by_git
+        self._git(tmp_path, "init", "-q")
+        assert credentials_tracked_by_git(tmp_path) is True
+
+    def test_repo_with_ignore(self, tmp_path):
+        from vibepaper.gdocs import credentials_tracked_by_git
+        self._git(tmp_path, "init", "-q")
+        (tmp_path / ".gitignore").write_text("/.vibepaper/\n")
+        assert credentials_tracked_by_git(tmp_path) is False
