@@ -29,6 +29,7 @@ def _is_passthrough_line(line: str) -> bool:
         or stripped.startswith("|")       # table rows
         or stripped.startswith("```")     # fenced code
         or stripped.startswith("![")      # images
+        or stripped.startswith("{%")      # Jinja statements, e.g. {% assert %}
     )
 
 

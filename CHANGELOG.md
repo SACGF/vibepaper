@@ -2,6 +2,18 @@
 
 All notable changes to vibepaper are documented here.
 
+## [Unreleased]
+
+### Added
+
+Words next to facts no longer go stale silently ([#9](https://github.com/SACGF/vibepaper/issues/9)). vibepaper kept the digits current, but the qualifiers beside them ("under 1%", "two orders of magnitude", "dominated by A then B", "all 8,409,757") were hand-typed and drifted when facts CSVs were refreshed.
+
+- **Word filters** render the qualifier from one pre-computed fact: `orders_of_magnitude` (850 → "nearly three orders of magnitude"), `within_pct` (1.5 → "within 2%"), `approx(sig, per, noun)` (408 days → "over a year"), `direction(up, down)` (by sign), `article` (`{{ x | fold(1) | article }}` → "an 11.5-fold") and `number_word`. Integers up to `spell_out_up_to` (new `paper.toml` option, default 10) are spelled out.
+- **`{% assert condition, "message" %}`** pins the condition behind wording that cannot be generated (ordering, totality). It renders nothing and leaves no blank line. A false condition fails the build with the file, line, message and the value of every fact it reads.
+- **`vibepaper lint`** lists sentences that put a `{{ fact }}` next to a claim word without a word filter or assert in the paragraph. It also flags facts that round to 100.0/0.0 next to "every"/"none". `{# lint-ok: reason #}` accepts a paragraph's wording, and `--check` exits 1 for CI.
+- **`vibepaper diff` reports changed facts by name**, e.g. `bench.rest_tps 16 → 111 (+594%), referenced in results.md ×2`, using a facts cache (`build/.last_facts.json`) that `build` now writes. It then lists the unchecked claim-word sentences that use a changed fact.
+- **Agent docs**: a "Words that depend on facts" README section; a new step 8 in `ONBOARDING_PROMPT.md`; and `RETROFIT_PROMPT.md` for converting papers that already use vibepaper, including folding hand-kept "re-check after re-run" lists into asserts.
+
 ## [0.8.0] — 2026-06-14
 
 ### Added

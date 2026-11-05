@@ -16,6 +16,15 @@ We are going to set up [vibepaper](https://pypi.org/project/vibepaper/) in this 
 - `fold` — fold change suffix: 2.0 → "2.0-fold"
 - `fmt('.2e')` — raw Python format spec escape hatch
 
+**Word filters** render the qualifier *next to* a number from a fact, so the wording cannot go stale when the number changes. Each takes one pre-computed value (a ratio, percent difference or delta that the script emits):
+- `orders_of_magnitude` — 850 → "nearly three orders of magnitude"
+- `within_pct` — 1.5 → "within 2%"
+- `approx(sig=1, per=None, noun=None)` — 408 with `per=365, noun='year'` → "over a year"
+- `direction('rises', 'falls')` — by sign → "rises" / "falls" / "is unchanged"
+- `article` — `{{ fold | fold(1) | article }}` → "an 11.5-fold"
+
+For wording that cannot be generated (ordering, "all", "none"), pin the condition it depends on with `{% assert condition, "the sentence it protects" %}` on the line directly above the sentence. It renders nothing; the build fails if the condition is false.
+
 **Percentages:** emit pre-multiplied percent values from your fact scripts (store a rate of 0.522 as `52.2`), then format in the template with `dp` and a literal `%`: `{{ rate | dp(1) }}%` → "52.2%". Do not store fractions and multiply in the template — there is no `pct` filter (removed in issue #4 because it silently rendered the wrong magnitude).
 
 Each 1-row CSV in `output/facts/` becomes a template namespace:
@@ -54,6 +63,8 @@ Read all the paper section files. List every hardcoded number — counts, percen
 - What output file currently holds it (CSV, TSV, parquet, log output)
 
 Group related numbers under a proposed namespace (e.g. all model performance numbers → `model`, all cohort demographics → `cohort`).
+
+While you audit, also note the **words that depend on each number**: direction ("rises", "falls"), magnitude ("under 1%", "two orders of magnitude"), approximation ("nearly", "over a year"), ordering ("dominated by A then B") and totality ("all", "none"). These go stale just like the digits. Step 8 handles them; for now, record which derived value each one needs (a ratio, a percent difference, a delta), so that Step 3 can emit it.
 
 ### Step 3 — Write facts CSVs from the analysis scripts
 
@@ -162,7 +173,33 @@ The model achieved an AUC of {{ results.auc | dp(2) }} (p {{ results.pvalue | fm
 
 If the paper uses informal citation placeholders like `[REF Smith 2020]`, convert them to pandoc syntax now: `[@Smith2020]`.
 
-### Step 8 — Verify the build
+### Step 8 — Audit the paper for words that depend on numbers
+
+Run:
+
+```bash
+vibepaper lint
+```
+
+It lists every sentence that has a `{{ fact }}` beside a claim word (rises, falls, under, within, nearly, about, over, all, every, none, dominated, largest, -fold, ...) and no word filter or `{% assert %}` in its paragraph. For each flagged sentence, decide:
+
+- **(a) Generate the word.** Replace the qualifier with a word filter, and have the analysis script emit the derived value the filter needs, e.g. `rest_vs_uta_ratio` for `orders_of_magnitude` or `diff_pct` for `within_pct`.
+  `roughly two orders of magnitude faster` → `{{ bench.rest_vs_uta_ratio | orders_of_magnitude }} faster`
+- **(b) Keep the wording and assert it.** Add an `{% assert %}` for the condition the words rely on, on the line directly above the sentence (no blank line in between):
+  ```
+  {% assert residual.indel_count > residual.multi_locus_count, "'dominated by indel then paralog' order" %}
+  ```
+- **(c) Leave it and say why.** For true hedges and interpretive words ("just", "only", "striking"), add `{# lint-ok: reason #}` at the end of a line in the paragraph.
+
+Rules:
+- Never keep a magnitude or direction word as a literal beside a fact.
+- A derived value that a filter consumes is computed in the script, never in the template.
+- An assert's message names the sentence it protects.
+- If lint reports a fact that renders as `100.0` or `0.0` only because of rounding, next to "every" or "none", fix the claim or the precision. Do not leave a rounded 100.0% beside "every".
+
+Re-run `vibepaper lint` until it reports nothing, then add `vibepaper lint --check` to CI if the project has CI.
+
+### Step 9 — Verify the build
 
 Regenerate the facts CSVs by running the analysis scripts, then:
 
@@ -175,7 +212,13 @@ Watch for:
 - `RuntimeError: Template error` → template references a field that doesn't exist in any CSV; check the namespace and column name
 - `WARNING: ... appears to be a stub` → a section file has very little content (fine for placeholders)
 
+- `RuntimeError: ...: assertion failed: ...` → an `{% assert %}` condition is false: the hand-written wording no longer matches the facts, so reword the sentence (and update the assert)
+
 Use `vibepaper --verbose` to see which CSVs are loaded and which templates are rendered.
+
+### After re-running the analysis
+
+`vibepaper diff` reports which facts changed, by name and by how much, and where the paper uses them, followed by the sentences that use a changed fact beside unchecked claim words. Start the re-read from that list rather than from the whole paper.
 
 ### If there was an existing build script
 
