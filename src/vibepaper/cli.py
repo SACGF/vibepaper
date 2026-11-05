@@ -148,9 +148,11 @@ def main():
             "suggestions. On first run, creates a new Google Doc. On subsequent\n"
             "runs, computes a diff against the last-synced version and pushes\n"
             "only changed paragraphs.\n\n"
-            "Requires .vibepaper/credentials.json (OAuth client secret from\n"
-            "Google Cloud Console). Will open a browser for authentication on\n"
-            "first use.\n\n"
+            "Requires .vibepaper/credentials.json: an OAuth client secret of type\n"
+            "'Desktop app' from Google Cloud Console, with the Google Docs API\n"
+            "enabled. Will open a browser for authentication on first use.\n"
+            ".vibepaper/ holds secrets — keep it out of git.\n"
+            "Setup: https://github.com/SACGF/vibepaper#setting-up-google-docs-sync\n\n"
             "Install sync dependencies:  pip install vibepaper[sync]"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -531,6 +533,7 @@ def _run_sync(args):
     from .gdocs import (
         get_docs_service, create_doc, sync_to_doc,
         SyncState, save_synced_render, load_synced_render,
+        credentials_tracked_by_git,
     )
 
     level = logging.DEBUG if args.verbose else logging.WARNING
@@ -555,7 +558,20 @@ def _run_sync(args):
         sys.exit(1)
 
     state = SyncState.load(project_root)
-    service = get_docs_service(project_root)
+
+    if credentials_tracked_by_git(project_root):
+        print(
+            "WARNING: .vibepaper/ is not gitignored. It holds your OAuth client\n"
+            "secret (credentials.json) and refresh token (token.json) — add\n"
+            "'/.vibepaper/' to your project's .gitignore before committing.",
+            file=sys.stderr,
+        )
+
+    try:
+        service = get_docs_service(project_root)
+    except (FileNotFoundError, ValueError, RuntimeError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        sys.exit(1)
 
     current_hash = hashlib.sha256(current_text.encode()).hexdigest()
 
