@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .claims import TOTALITY_WORDS, claim_words
+from .facts import fact_type
 from .provenance import mixed_versions
 from .words import WORD_FILTER_NAMES
 
@@ -37,7 +38,7 @@ _FACT = "\x00{}\x00"
 class Finding:
     file: str
     line: int
-    kind: str                 # "unchecked", "rounding" or "provenance"
+    kind: str                 # "unchecked", "rounding", "provenance" or "type"
     sentence: str
     words: list[str] = field(default_factory=list)
     detail: str = ""
@@ -46,7 +47,7 @@ class Finding:
         text = " ".join(self.sentence.split())
         if len(text) > 160:
             text = text[:157] + "..."
-        if self.kind in ("rounding", "provenance"):
+        if self.kind in ("rounding", "provenance", "type"):
             return f"{self.file}:{self.line}: {self.detail}\n    \"{text}\""
         return f"{self.file}:{self.line}: {', '.join(self.words)}\n    \"{text}\""
 
@@ -165,6 +166,61 @@ def provenance_findings(text: str, filename: str, context: dict) -> list[Finding
     return findings
 
 
+_PERCENT_AFTER_RE = re.compile(r"\{\{-?((?:(?!\}\}).)*?)-?\}\}[ \t]?\\?%", re.DOTALL)
+# Untyped names that suggest a 0–1 share. Names lie, so this is only a hint.
+_FRACTION_NAME_RE = re.compile(r"(^|_)(frac|fraction|prop|proportion|rate|share)(_|$)")
+_PERCENT_NAME_RE = re.compile(r"(^|_)(pct|percent|pc|pp)(_|$)")
+_ROOT_FACT_RE = re.compile(r"^[\s(]*([A-Za-z_]\w*)\.(\w+)")
+_OTHER_COMMENT_RE = re.compile(r"\{#(?!-?\s*lint-ok\b).*?#\}", re.DOTALL)
+_TIMES_100_RE = re.compile(r"\*\s*100\b|\b100\s*\*")
+
+
+def _percent_issue(expr: str, context: dict) -> str | None:
+    """Why ``{{ expr }}%`` prints the wrong magnitude, or None."""
+    m = _ROOT_FACT_RE.match(expr)
+    if not m or not isinstance(context.get(m.group(1)), dict):
+        return None
+    name = f"{m.group(1)}.{m.group(2)}"
+    value = context[m.group(1)].get(m.group(2))
+    t = fact_type(value)
+    shown = "{{ " + " ".join(expr.split()) + " }}%"
+    if re.search(r"\|\s*pct\b", expr):
+        return f"{shown}: pct already adds the % sign"
+    if t == "percent" and _TIMES_100_RE.search(expr):
+        return f"{shown}: {name} is typed percent, so × 100 scales it twice"
+    if "*" in expr:
+        return None
+    if t in ("fraction", "pvalue"):
+        return (f"{shown}: {name} = {value} is typed {t}, so this prints it unscaled; "
+                + ("use | pct" if t == "fraction" else "a p-value isn't a percent"))
+    field = m.group(2).lower()
+    if t is None and isinstance(value, (int, float)) and not isinstance(value, bool) \
+            and 0 < abs(value) < 1 and _FRACTION_NAME_RE.search(field) \
+            and not _PERCENT_NAME_RE.search(field):
+        return (f"{shown}: {name} = {value:g} is untyped, below 1 and named like a fraction, "
+                "so this may print it unscaled. Declare its type in a vertical facts CSV: "
+                "fraction (then use | pct), or percent if it is already × 100")
+    return None
+
+
+def type_findings(text: str, filename: str, context: dict) -> list[Finding]:
+    """``{{ fact }}%`` where the fact's type (or an untyped value below 1)
+    means the printed percent is wrong by a factor of 100 (issue #12).
+    ``{# lint-ok #}`` accepts a paragraph."""
+    text = _blank_out(_blank_out(_blank_out(text, _RAW_RE), _HTML_COMMENT_RE), _OTHER_COMMENT_RE)
+    findings = []
+    for start, para in _paragraphs(text):
+        if "{{" not in para or _LINT_OK_RE.search(para):
+            continue
+        for m in _PERCENT_AFTER_RE.finditer(para):
+            detail = _percent_issue(m.group(1), context)
+            if detail:
+                line = start + para.count("\n", 0, m.start())
+                sentence = para.splitlines()[line - start]
+                findings.append(Finding(filename, line, "type", sentence, detail=detail))
+    return findings
+
+
 def lint_files(paths: list[Path], project_root: Path, env=None, context=None) -> list[Finding]:
     findings: list[Finding] = []
     for path in paths:
@@ -178,6 +234,7 @@ def lint_files(paths: list[Path], project_root: Path, env=None, context=None) ->
         findings.extend(lint_text(text, name, env, context))
         if context is not None:
             findings.extend(provenance_findings(text, name, context))
+            findings.extend(type_findings(text, name, context))
     return findings
 
 
@@ -233,10 +290,16 @@ def format_findings(findings: list[Finding]) -> str:
     mixed = [f for f in findings if f.kind == "provenance"]
     if mixed:
         summary.append(f"{len(mixed)} paragraph(s) mix facts from different tool versions")
+    typed = [f for f in findings if f.kind == "type"]
+    if typed:
+        summary.append(f"{len(typed)} percent(s) may print at the wrong magnitude")
     out.append("")
     out.append("; ".join(summary) + f" ({files} file(s)).")
-    out.append(
-        "For each: use a word filter, add an {% assert %} for the condition the "
-        "wording depends on, or add {# lint-ok: reason #} to the paragraph."
-    )
+    if unchecked:
+        out.append(
+            "For each: use a word filter, add an {% assert %} for the condition the "
+            "wording depends on, or add {# lint-ok: reason #} to the paragraph."
+        )
+    else:
+        out.append("Add {# lint-ok: reason #} to a paragraph to accept it as written.")
     return "\n".join(out)

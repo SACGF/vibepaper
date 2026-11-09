@@ -49,16 +49,14 @@ def test_dp_rounding_direction(render):
 
 # --- pct (removed: issue #4) ---
 
-def test_pct_removed_raises_with_guidance(render):
-    # `pct` was removed because its name invited passing a fraction while its
-    # contract wanted a pre-multiplied percent — a silent magnitude bug.
-    # It now fails loudly and points at the replacement.
+def test_pct_refuses_untyped_value(render):
+    # pct on a bare number can't know if it's a fraction or a percent (issue
+    # #4, #12); it must fail and point at typing the fact or dp + "%".
     import pytest
-    with pytest.raises(RuntimeError) as exc:
+    with pytest.raises(ValueError) as exc:
         render("{{ v | pct(1) }}", v=52.2)
     message = str(exc.value)
-    assert "issue #4" in message
-    assert "dp" in message
+    assert "type" in message and "dp(1) }}%" in message
 
 
 # --- fold ---

@@ -25,9 +25,9 @@ We are going to set up [vibepaper](https://pypi.org/project/vibepaper/) in this 
 
 For wording that cannot be generated (ordering, "all", "none"), pin the condition it depends on with `{% assert condition, "the sentence it protects" %}` on the line directly above the sentence. It renders nothing; the build fails if the condition is false.
 
-**Percentages:** emit pre-multiplied percent values from your fact scripts (store a rate of 0.522 as `52.2`), then format in the template with `dp` and a literal `%`: `{{ rate | dp(1) }}%` → "52.2%". Do not store fractions and multiply in the template — there is no `pct` filter (removed in issue #4 because it silently rendered the wrong magnitude).
+**Percentages:** give every percentage, fraction and p-value a type when the script writes it (Step 3): `fraction` for 0–1, `percent` for values already × 100. Then format with `pct`: `{{ rate | pct(1) }}` → "52.2%" for either. `pct` refuses an untyped value, and `vibepaper lint` flags `{{ rate | dp(1) }}%` on a fraction, so a fraction can't silently print as "0.5%".
 
-Each 1-row CSV in `output/facts/` becomes a template namespace:
+Each facts CSV in `output/facts/` becomes a template namespace:
 ```
 output/facts/model.csv    →  {{ model.auc | dp(3) }}
 output/facts/cohort.csv   →  {{ cohort.n_patients | commas }}
@@ -68,31 +68,31 @@ While you audit, also note the **words that depend on each number**: direction (
 
 ### Step 3 — Write facts CSVs from the analysis scripts
 
-For each namespace, modify the relevant analysis script to write a 1-row facts CSV. The pattern is:
+For each namespace, modify the relevant analysis script to write a vertical facts CSV (`field,value,type`) with vibepaper's helper. Wrap each value in its type, so the paper can't mis-scale it:
 
 ```python
-import pandas as pd
 from pathlib import Path
+from vibepaper.facts import write_facts, Count, Fraction, Percent, PValue, Ratio
 
-def write_facts(output_dir: Path):
-    facts_dir = output_dir / "facts"
-    facts_dir.mkdir(parents=True, exist_ok=True)
-
-    pd.DataFrame([{
-        "n_patients":  n_patients,
-        "n_controls":  n_controls,
-        "auc":         auc,
-        "pvalue":      pvalue,
-    }]).to_csv(facts_dir / "results.csv", index=False)
+def write_paper_facts(output_dir: Path):
+    write_facts(output_dir / "facts" / "results.csv",
+                n_patients=Count(n_patients),
+                n_controls=Count(n_controls),
+                responder_rate=Fraction(responder_rate),   # 0–1
+                auc=auc,                                   # untyped is fine
+                pvalue=PValue(pvalue),
+                fold_change=Ratio(fold_change))
 ```
 
+Use `Percent` for a value already multiplied by 100 and `Text` for strings that look like numbers (versions such as "1.10"). If the analysis environment can't import vibepaper, write the same three columns with `csv.writer(fh, lineterminator="\n")`.
+
 Rules:
-- One row per CSV, one CSV per logical group
+- One CSV per logical group
 - Store floats at full precision — rounding happens in the template filter, not at storage time (storing a pre-rounded string like "4.6" causes IEEE 754 drift when the filter re-rounds)
 - Store raw values (counts as integers, ratios as decimals) — formatting is the template's job
-- Column names become template field names, so make them descriptive and unambiguous
+- Field names become template names, so make them descriptive and unambiguous
 
-Call `write_facts()` at the end of each script's `main()` so the CSVs are always fresh alongside the analysis outputs.
+Call `write_paper_facts()` at the end of each script's `main()` so the CSVs are always fresh alongside the analysis outputs.
 
 If the results depend on a tool or data version the paper names (in methods, captions), write a provenance sidecar beside the CSV and use `{{ results._prov.tools.<tool> }}` in the prose instead of typing the version:
 

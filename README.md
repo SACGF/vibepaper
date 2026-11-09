@@ -190,13 +190,14 @@ vibepaper uses [Jinja2](https://jinja.palletsprojects.com/) for template substit
 | `\| commas` | `{{ n \| commas }}` | `254,129` |
 | `\| dp(n)` | `{{ mean \| dp(1) }}` | `9.2` |
 | `\| fold(n)` | `{{ ratio \| fold(1) }}` | `2.0-fold` |
+| `\| pct(n)` | `{{ rate \| pct(2) }}` | `1.53%` (only for a [typed](#typed-facts) fraction or percent) |
 | `\| fmt(spec)` | `{{ v \| fmt('+.1f') }}` | `+3.7` |
 
 `dp` (decimal places) is for numbers that will have surrounding text (e.g. "mean TPV was 9.2"). Use `fmt` for any format string Python's `format()` accepts.
 
 There are also **word filters** (`approx`, `orders_of_magnitude`, `within_pct`, `direction`, `article`, `number_word`) that render the qualifier *next to* a number from the fact itself. See [Words that depend on facts](#words-that-depend-on-facts).
 
-**Percentages:** fact scripts emit pre-multiplied percent values (a rate of 0.522 is stored as `52.2`); templates only format them — `{{ rate \| dp(1) }}%` → `52.2%`. There is deliberately no `pct` filter: its name invited passing a fraction while it expected an already-multiplied percent, which silently rendered the wrong magnitude (`0.923` → `0.9%` instead of `92.3%`). See issue #4.
+**Percentages:** declare the fact's type as `fraction` (0–1) or `percent` (already × 100) in its facts CSV and use `pct`, which scales a fraction by 100 and shows a percent as is. `pct` refuses an untyped number, because it can't tell `0.0153` the fraction (1.53%) from `0.0153` the percent; for an untyped percent write `{{ rate \| dp(1) }}%`. See [typed facts](#typed-facts) and issues #4 and #12.
 
 ### Examples
 
@@ -406,6 +407,44 @@ field,value
 v112_count,254129
 v115_count,509650
 ```
+
+#### Typed facts
+
+A vertical CSV can add a third `type` column, so the script that produces a number also says what it measures:
+
+```csv
+field,value,type
+herding_rate_near,0.0153,fraction
+conflict_resolved,61.2,percent
+primary_max_q,3.1e-13,pvalue
+n_distinct_studies,184,count
+cdot_version,1.10,text
+n_samples,12,
+```
+
+| Type | Meaning | Checked at load |
+|---|---|---|
+| `fraction` | share from 0 to 1; `pct` multiplies by 100 | 0 ≤ value ≤ 1 |
+| `percent` | already × 100 (a share or a change); `pct` shows it as is | a number |
+| `pvalue` | p- or q-value | 0 ≤ value ≤ 1 |
+| `count` | whole number | integer ≥ 0 |
+| `ratio` | e.g. a fold change | value > 0 |
+| `text` | kept exactly as written ("1.10" stays "1.10") | |
+
+A blank type is untyped and behaves as before, so you can type the percentages and p-values first, where the mistakes happen. A value out of its type's range fails the load with the file and line. Filters refuse a type they would mis-scale: `int`, `commas` and `number_word` refuse a fraction or p-value; `fold` and `orders_of_magnitude` want a ratio, not a percent or count; `within_pct` refuses a fraction. Typed values still compare and do arithmetic like numbers, and the result of arithmetic is untyped, so `{{ (rate * 100) | pct }}` is an error.
+
+`vibepaper lint` flags a percent that would print at the wrong magnitude: `{{ rate | dp(2) }}%` on a fraction, `{{ (share * 100) | dp }}%` on a percent, `{{ x | pct }}%` (a doubled sign), and an untyped value below 1 whose name suggests a fraction (`_rate`, `_frac`, `_share`, ...). `vibepaper diff` reports a type change, such as fraction 0.0153 → percent 1.53, as one change with the types rather than a +9900% jump.
+
+Producer scripts can write typed CSVs (with LF line endings) with a helper:
+
+```python
+from vibepaper.facts import write_facts, Fraction, Percent, PValue, Count
+write_facts("output/facts/herding.csv",
+            herding_rate_near=Fraction(rate_near), conflict_resolved=Percent(resolved_pct),
+            primary_max_q=PValue(max_q), n_distinct_studies=Count(n), n_samples=12)
+```
+
+Types are only for vertical CSVs; horizontal CSVs stay untyped.
 
 #### Horizontal format
 
