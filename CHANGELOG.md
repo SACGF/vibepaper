@@ -12,6 +12,8 @@ All notable changes to vibepaper are documented here.
 
 - **A build reports every failed `{% assert %}` at once, without a traceback** ([#18](https://github.com/SACGF/vibepaper/issues/18)). It used to stop at the first one, after a Python traceback. Now every section is rendered, and each failure is listed with its file:line, message and fact values before the build exits 1. An assert in an `{% include %}`d file is reported with that file's name. Other template errors (an undefined fact, a word filter that no longer fits) also print without a traceback, from `build` and `diff`.
 
+- **`vibepaper diff` shows a word diff of each changed paragraph** ([#16](https://github.com/SACGF/vibepaper/issues/16)). Edits are marked `[-old-]{+new+}`, with eight words of context either side and nothing truncated (it used to show the first 200 characters of OLD and NEW). A changed table lists its changed rows. Each change gives its line number. Paragraphs that were only re-wrapped are no longer reported, by `diff` or by `sync`.
+
 ### Fixed
 
 - **A `{# comment #}` on its own line no longer splits the paragraph** ([#23](https://github.com/SACGF/vibepaper/issues/23)). Like `{% assert %}`, a comment that fills its line(s) now renders as nothing, newline included, so `{# lint-ok: reason #}` can sit on its own line inside or above a paragraph. A comment between blank lines still leaves the paragraphs on either side apart. `{# ... -#}` keeps its own whitespace control.

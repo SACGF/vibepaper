@@ -143,13 +143,23 @@ class TestFormatDiff:
     def test_no_changes_message(self):
         assert "No changes" in format_diff([])
 
-    def test_changed_shows_old_and_new(self):
-        old = "# Results\n\nOld text.\n"
-        new = "# Results\n\nNew text.\n"
-        changes = diff_paragraphs(old, new)
-        output = format_diff(changes)
-        assert "OLD" in output
-        assert "NEW" in output
+    def test_word_diff_shows_late_edit_in_long_paragraph(self):
+        # Issue #16: a change near the end of a long paragraph used to be cut
+        # off at 200 characters.
+        filler = " ".join(f"w{i}" for i in range(80))
+        changes = diff_paragraphs(f"Mean was 54.3. {filler} ends X.\n", f"Mean was 55.1. {filler} ends Y.\n")
+        out = format_diff(changes, context_words=3)
+        assert "Mean was [-54.3.-]{+55.1.+} w0 w1 w2 ... w78 w79 ends [-X.-]{+Y.+}" in out
+
+    def test_reflow_only_is_not_a_change(self):
+        assert diff_paragraphs("One two\nthree four.\n", "One two three\nfour.\n") == []
+
+    def test_table_change_shows_changed_row(self):
+        old = "| a | b |\n|---|---|\n| x | 1 |\n| y | 2 |\n"
+        new = "| a | b |\n|---|---|\n| x | 1 |\n| y |  3 |\n"
+        out = format_diff(diff_paragraphs(old, new))
+        assert "  - | y | 2 |\n  + | y | 3 |" in out
+        assert "| x | 1 |" not in out
 
 
 # --- facts cache and fact-level diff (issue #9) ---

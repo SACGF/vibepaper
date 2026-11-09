@@ -19,8 +19,12 @@ class Paragraph:
     line_start: int
 
     def fingerprint(self) -> str:
-        """Normalized text for comparison."""
-        return "\n".join(line.rstrip() for line in self.text.strip().splitlines())
+        """Normalized text for comparison: whitespace runs collapsed, so a
+        paragraph that was only re-wrapped compares equal (issue #16). Table
+        rows stay on separate lines."""
+        if self.kind == "table":
+            return "\n".join(" ".join(line.split()) for line in self.text.strip().splitlines())
+        return " ".join(self.text.split())
 
 
 def parse_paragraphs(text: str) -> list[Paragraph]:
@@ -300,26 +304,63 @@ def format_stale_wording(findings, fact_changes: list[FactChange]) -> str:
 # Display
 # ---------------------------------------------------------------------------
 
-def format_diff(changes: list[ParagraphChange]) -> str:
-    """Format changes for terminal display."""
+def format_diff(changes: list[ParagraphChange], context_words: int = 8) -> str:
+    """Format changes for terminal display.
+
+    A changed prose paragraph is shown as a word diff, ``[-old-]{+new+}``, with
+    ``context_words`` of unchanged text either side of each edit; a changed
+    table shows its changed rows. Nothing is truncated (issue #16).
+    """
     if not changes:
         return "No changes detected."
     lines = [f"{len(changes)} paragraph(s) changed:\n"]
     for i, c in enumerate(changes, 1):
-        lines.append(f"--- Change {i} [{c.action}] under: {c.context}")
+        where = c.new.line_start if c.new else c.old.line_start
+        lines.append(f"--- Change {i} [{c.action}] under: {c.context} (line {where})")
         if c.action == "changed":
-            lines.append(f"  OLD: {_truncate(c.old.text)}")
-            lines.append(f"  NEW: {_truncate(c.new.text)}")
-
+            if c.old.kind == "table" and c.new.kind == "table":
+                lines.extend("  " + l for l in _row_diff(c.old.fingerprint(), c.new.fingerprint()))
+            else:
+                lines.append("  " + word_diff(c.old.fingerprint(), c.new.fingerprint(), context_words))
         elif c.action == "added":
-            lines.append(f"  + {_truncate(c.new.text)}")
+            lines.append(f"  + {c.new.fingerprint()}")
         elif c.action == "removed":
-            lines.append(f"  - {_truncate(c.old.text)}")
+            lines.append(f"  - {c.old.fingerprint()}")
         lines.append("")
     return "\n".join(lines)
 
 
-def _truncate(text: str, max_len: int = 200) -> str:
-    """Truncate text for display, collapsing newlines."""
-    flat = " ".join(text.split())
-    return flat[:max_len] + "..." if len(flat) > max_len else flat
+def word_diff(old: str, new: str, context_words: int = 8) -> str:
+    """``old`` → ``new`` as one line, edits marked ``[-removed-]{+added+}``.
+
+    Unchanged runs longer than ``context_words`` either side of an edit are
+    elided with "...".
+    """
+    a, b = old.split(), new.split()
+    opcodes = difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes()
+    out: list[str] = []
+    for n, (tag, i1, i2, j1, j2) in enumerate(opcodes):
+        if tag == "equal":
+            words = a[i1:i2]
+            first, last = n == 0, n == len(opcodes) - 1
+            keep_head = 0 if first else context_words
+            keep_tail = 0 if last else context_words
+            if len(words) > keep_head + keep_tail:
+                words = words[:keep_head] + ["..."] + (words[len(words) - keep_tail:] if keep_tail else [])
+            out.extend(words)
+            continue
+        removed = "[-" + " ".join(a[i1:i2]) + "-]" if i2 > i1 else ""
+        added = "{+" + " ".join(b[j1:j2]) + "+}" if j2 > j1 else ""
+        out.append(removed + added)
+    return " ".join(out)
+
+
+def _row_diff(old: str, new: str) -> list[str]:
+    """Changed table rows as ``- row`` / ``+ row`` lines."""
+    a, b = old.splitlines(), new.splitlines()
+    rows = []
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
+        if tag != "equal":
+            rows.extend(f"- {r}" for r in a[i1:i2])
+            rows.extend(f"+ {r}" for r in b[j1:j2])
+    return rows
