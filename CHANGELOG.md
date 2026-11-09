@@ -2,6 +2,12 @@
 
 All notable changes to vibepaper are documented here.
 
+## [Unreleased]
+
+### Added
+
+- **`vibepaper --version`** (also `-V`, and `python -m vibepaper`) prints the installed version ([#19](https://github.com/SACGF/vibepaper/issues/19)).
+
 ## [0.9.0] — 2026-11-05
 
 ### Added

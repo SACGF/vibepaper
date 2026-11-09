@@ -7,6 +7,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from . import version as VIBEPAPER_VERSION
 from .build import (
     PdfToolchainError,
     load_config,
@@ -23,6 +24,10 @@ def main():
         prog="vibepaper",
         description="Data-bound Markdown-to-Word builder for scientific papers.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--version", "-V", action="version",
+        version=f"%(prog)s {VIBEPAPER_VERSION}",
     )
     subparsers = parser.add_subparsers(dest="command")
 
@@ -173,7 +178,8 @@ def main():
     # -- Parse --------------------------------------------------------------
     # If the first arg doesn't look like a subcommand, treat it as a build.
     # This keeps `vibepaper paper.toml` and `vibepaper intro.md` working.
-    known_commands = {"build", "fetch-csl", "wrap", "diff", "lint", "sync", "-h", "--help"}
+    known_commands = {"build", "fetch-csl", "wrap", "diff", "lint", "sync",
+                      "-h", "--help", "-V", "--version"}
     if len(sys.argv) > 1 and sys.argv[1] not in known_commands:
         args = build_parser.parse_args(sys.argv[1:])
         args.command = "build"
