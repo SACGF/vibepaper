@@ -18,6 +18,7 @@ All notable changes to vibepaper are documented here.
 ### Fixed
 
 - **A `{# comment #}` on its own line no longer splits the paragraph** ([#23](https://github.com/SACGF/vibepaper/issues/23)). Like `{% assert %}`, a comment that fills its line(s) now renders as nothing, newline included, so `{# lint-ok: reason #}` can sit on its own line inside or above a paragraph. A comment between blank lines still leaves the paragraphs on either side apart. `{# ... -#}` keeps its own whitespace control.
+- **`{# lint-ok #}` no longer turns off lint's rounding check** ([#17](https://github.com/SACGF/vibepaper/issues/17)). It accepts a paragraph's claim words, but a fact that renders as 100.0/0.0 beside "every"/"none" is still flagged.
 
 ## [0.9.0] — 2026-11-05
 

@@ -84,9 +84,11 @@ def lint_text(text: str, filename: str, env=None, context: dict | None = None) -
     for start, para in _paragraphs(text):
         if _is_table(para) or "{{" not in para:
             continue
-        if _LINT_OK_RE.search(para):
-            continue
-        covered = bool(_ASSERT_RE.search(para) or _WORD_FILTER_RE.search(para))
+        # lint-ok accepts the claim words only; the rounding check still runs,
+        # since a hedge accepted for one sentence says nothing about a rounded
+        # "every" in another (issue #17).
+        lint_ok = bool(_LINT_OK_RE.search(para))
+        covered = lint_ok or bool(_ASSERT_RE.search(para) or _WORD_FILTER_RE.search(para))
 
         exprs: list[str] = []
 

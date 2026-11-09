@@ -302,7 +302,7 @@ The second kind of finding needs facts, and is reported even in covered paragrap
 
 Lint also lists facts CSVs whose line endings (CRLF or LF) differ from the rest of the facts directory. This is a note only and does not make `--check` fail.
 
-For a word that really is a hedge or a judgement ("just", "only", "striking"), accept it by adding `{# lint-ok: reason #}` anywhere in the paragraph. It can go on a line of its own: like an assert, it leaves no blank line in the output.
+For a word that really is a hedge or a judgement ("just", "only", "striking"), accept it by adding `{# lint-ok: reason #}` anywhere in the paragraph. It can go on a line of its own: like an assert, it leaves no blank line in the output. It accepts the claim words only: a fact that rounds to 100.0 or 0.0 beside "every" or "none" is still flagged.
 
 ### `vibepaper diff`: what changed, and which words to re-read
 

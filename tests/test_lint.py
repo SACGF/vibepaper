@@ -67,8 +67,9 @@ def test_words_inside_fact_expression_not_counted():
 def test_rounding_to_100_beside_every(tmp_path):
     env = make_jinja_env(tmp_path)
     text = "Every variant matched ({{ v.pct | dp(1) }}%). {# lint-ok: checked #}\n"
-    # lint-ok silences the whole paragraph
-    assert lint_text(text, "x.md", env, {"v": {"pct": 99.97}}) == []
+    # lint-ok accepts the wording but not a rounded 100.0 (issue #17)
+    [f] = lint_text(text, "x.md", env, {"v": {"pct": 99.97}})
+    assert f.kind == "rounding"
 
     text = "{% assert v.n > 0 %}\nEvery variant matched ({{ v.pct | dp(1) }}%).\n"
     [f] = lint_text(text, "x.md", env, {"v": {"pct": 99.97, "n": 1}})
