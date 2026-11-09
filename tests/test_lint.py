@@ -119,7 +119,8 @@ def test_unused_facts(tmp_path):
     )
     context = {
         "facts_dir": str(facts),
-        "a": {"x": 1, "y": 2, "x_more": 3, "from_include": 4, "new_col": 5, "raw_1": 6},
+        "a": {"x": 1, "y": 2, "x_more": 3, "from_include": 4, "new_col": 5, "raw_1": 6,
+              "_prov": {"tools": {"cdot": "0.2.37"}}},
         "whole": {"p": 1, "q": 2},
     }
     assert unused_facts(context, [sec], tmp_path, facts, ["a.raw_*"]) == ["a.new_col"]

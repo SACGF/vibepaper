@@ -258,6 +258,8 @@ def unused_facts(
         if re.search(whole_use, corpus):
             continue
         for name in fields:
+            if str(name).startswith("_"):     # _prov sidecar, not a fact
+                continue
             full = f"{ns}.{name}"
             if any(fnmatch.fnmatchcase(full, pat) for pat in allowed):
                 continue
