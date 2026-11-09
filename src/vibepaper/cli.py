@@ -111,6 +111,25 @@ def main():
         "--config", default="paper.toml", metavar="FILE",
         help="paper.toml config file (default: paper.toml in cwd).",
     )
+    diff_parser.add_argument(
+        "--facts-dir", metavar="DIR",
+        help="Facts directory (overrides paper.toml).",
+    )
+    against = diff_parser.add_mutually_exclusive_group()
+    against.add_argument(
+        "--against", metavar="REF",
+        help="Compare the facts with those committed at git REF (e.g. main, HEAD~1) "
+             "instead of the last build: a before/after table for a re-run PR.",
+    )
+    against.add_argument(
+        "--against-dir", metavar="DIR",
+        help="Compare the facts with another facts directory (e.g. a second run, "
+             "to expose non-determinism).",
+    )
+    diff_parser.add_argument(
+        "--format", choices=["text", "md"], default="text",
+        help="Output format for --against/--against-dir (md: a Markdown table).",
+    )
 
     # -- lint ---------------------------------------------------------------
     lint_parser = subparsers.add_parser(
@@ -478,6 +497,15 @@ def _run_diff(args):
     project_root = config_path.parent
     build_dir = project_root / config["build_dir"]
     build_paper = build_dir / "paper"
+    if args.facts_dir:
+        facts_dir = Path(args.facts_dir).resolve()
+    else:
+        facts_dir = project_root / config["facts_dir"]
+    all_sections = config["sections"] + config["supplementary"]
+
+    if args.against or args.against_dir:
+        _diff_against(args, config, project_root, facts_dir, all_sections)
+        return
 
     old_text = load_cache(build_dir)
     if old_text is None:
@@ -489,12 +517,10 @@ def _run_diff(args):
     old_facts = load_facts_cache(build_dir)
 
     # Re-render current state (Jinja2 + tables, no pandoc)
-    facts_dir = project_root / config["facts_dir"]
     build_jinja = build_dir / "jinja" / "paper"
 
     context = _facts_context(facts_dir)
     jinja_env = _paper_env(project_root, config, facts_dir)
-    all_sections = config["sections"] + config["supplementary"]
 
     try:
         for section in all_sections:
@@ -523,6 +549,43 @@ def _run_diff(args):
     new_text = concatenate_sections(build_paper, all_sections)
     changes = diff_paragraphs(old_text, new_text)
     print(format_diff(changes))
+
+
+def _diff_against(args, config, project_root, facts_dir, all_sections):
+    """``diff --against REF`` / ``--against-dir DIR``: before/after facts table."""
+    import tempfile
+    from .diff import compare_facts, diff_facts, flatten_facts, format_compare, \
+        format_stale_wording, facts_at_ref
+    from .lint import lint_files
+
+    with tempfile.TemporaryDirectory() as tmp:
+        if args.against:
+            try:
+                old_dir = facts_at_ref(facts_dir, args.against, Path(tmp))
+            except ValueError as e:
+                print(f"error: {e}", file=sys.stderr)
+                sys.exit(1)
+            label = args.against
+        else:
+            old_dir = Path(args.against_dir).resolve()
+            if not old_dir.is_dir():
+                print(f"error: {old_dir} is not a directory.", file=sys.stderr)
+                sys.exit(1)
+            label = args.against_dir
+        old_context = _facts_context(old_dir)
+
+    new_context = _facts_context(facts_dir)
+    env = _paper_env(project_root, config, facts_dir)
+    sources = _source_texts(project_root, all_sections)
+    changed, same, unreferenced = compare_facts(old_context, new_context, sources, env)
+    print(format_compare(changed, same, unreferenced, label, args.format))
+    if args.format == "text" and changed:
+        fact_changes = [c for c in diff_facts(flatten_facts(old_context), flatten_facts(new_context))
+                        if c.name in {r.name for r in changed}]
+        stale = format_stale_wording(
+            lint_files([project_root / s for s in all_sections], project_root), fact_changes)
+        if stale:
+            print(stale)
 
 
 # ---------------------------------------------------------------------------

@@ -336,6 +336,17 @@ MISSING means the assert reads a facts file or field that isn't there yet. `vibe
   ...
 ```
 
+For a PR that re-runs the analysis, `vibepaper diff --against <git ref>` compares the facts with those committed at that ref instead of the last build. `--against-dir DIR` compares with another facts directory; running a script twice and comparing the outputs shows whether it is deterministic. Values are shown as the paper renders them. A fact that changed only below display precision goes in a separate "renders the same" list. Add `--format md` for a table to paste into the PR:
+
+```
+| Fact | Before | After | Change | Used in |
+|---|---|---|---|---|
+| `benchmark.cdot_rest_tps` | 111 | 108 | -3% | results.md:157 |
+| `clinvar_submitted.uta_only` | 971 | 87 | -91% | results.md:104 |
+
+Changed but renders the same (1): `benchmark.grch38_load_time_s` (5)
+```
+
 ### Retrofitting an existing paper
 
 [`RETROFIT_PROMPT.md`](RETROFIT_PROMPT.md) is an agent prompt for papers that already use vibepaper. It works through the `vibepaper lint` output and converts each flagged sentence to a word filter, an assert, or a documented `lint-ok`.
@@ -688,11 +699,15 @@ vibepaper check [FILE.md ...] [--config FILE] [--facts-dir DIR] [--check]
   vibepaper check                              # sections from paper.toml
   vibepaper check --check                      # exit 1 on FAIL/ERROR, not MISSING
 
-vibepaper diff [--config FILE]
+vibepaper diff [--config FILE] [--facts-dir DIR]
+               [--against REF | --against-dir DIR] [--format text|md]
 
   Compare the current render against the last build: which facts changed
   (by name, with where they are used), which unchecked sentences use a
   changed fact, and which paragraphs changed.
+
+  vibepaper diff --against main --format md    # before/after facts table for a PR
+  vibepaper diff --against-dir run2/facts      # second run: expose non-determinism
 
 vibepaper sync [--config FILE] [--dry-run] [--verbose]
 

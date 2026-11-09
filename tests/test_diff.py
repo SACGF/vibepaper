@@ -2,6 +2,8 @@
 
 import textwrap
 
+import pytest
+
 from vibepaper.diff import (
     parse_paragraphs,
     diff_paragraphs,
@@ -209,3 +211,40 @@ class TestFactsDiff:
         out = format_stale_wording(findings, [FactChange("b.tps", 16, 111, [])])
         assert "r.md:1: under" in out
         assert "nearly" not in out
+
+
+# --- diff --against (issue #15) ---
+
+class TestDiffAgainst:
+    def test_compare_renders_through_paper_filters(self, tmp_path):
+        from vibepaper.diff import compare_facts, format_compare
+        from vibepaper.render import make_jinja_env
+
+        sources = {"r.md": "Ran {{ b.tps | commas }} HGVS/s.\nLoad {{ b.load | dp(0) }} s; {{ b.new }}.\n"}
+        old = {"b": {"tps": 16000, "load": 5.3, "unused": 1}}
+        new = {"b": {"tps": 111000, "load": 5.2, "unused": 2, "new": 3}}
+        changed, same, unreferenced = compare_facts(old, new, sources, make_jinja_env(tmp_path))
+        assert [(c.name, c.old_shown, c.new_shown) for c in changed] == [
+            ("b.new", "(new)", "3"), ("b.tps", "16,000", "111,000"),
+        ]
+        assert [c.name for c in same] == ["b.load"] and unreferenced == 1
+        md = format_compare(changed, same, unreferenced, "main", "md")
+        assert "| `b.tps` | 16,000 | 111,000 | +594% | r.md:1 |" in md
+        assert "Changed but renders the same (1): `b.load` (5)" in md
+
+    def test_facts_at_ref_reads_committed_csvs(self, tmp_path):
+        import subprocess
+        from vibepaper.diff import facts_at_ref
+
+        facts = tmp_path / "paper" / "facts"
+        facts.mkdir(parents=True)
+        (facts / "b.csv").write_text("field,value\nn,1\n")
+        run = lambda *a: subprocess.run(["git", "-C", str(tmp_path), *a], check=True, capture_output=True)
+        run("init", "-q")
+        run("add", ".")
+        run("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x")
+        (facts / "b.csv").write_text("field,value\nn,2\n")
+        out = facts_at_ref(facts, "HEAD", tmp_path / "old")
+        assert (out / "b.csv").read_text() == "field,value\nn,1\n"
+        with pytest.raises(ValueError, match="unknown git ref"):
+            facts_at_ref(facts, "nope", tmp_path / "old2")

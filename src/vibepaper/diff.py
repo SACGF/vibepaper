@@ -364,3 +364,147 @@ def _row_diff(old: str, new: str) -> list[str]:
             rows.extend(f"- {r}" for r in a[i1:i2])
             rows.extend(f"+ {r}" for r in b[j1:j2])
     return rows
+
+
+# ---------------------------------------------------------------------------
+# Facts against a git ref or another facts directory (issue #15)
+# ---------------------------------------------------------------------------
+
+_EXPR_RE = re.compile(r"\{\{(.*?)\}\}", re.DOTALL)
+
+
+def facts_at_ref(facts_dir: Path, ref: str, dest: Path) -> Path:
+    """Write the facts CSVs as committed at git ``ref`` into ``dest``.
+
+    Raises ``ValueError`` if ``facts_dir`` isn't in a git repository or the
+    ref doesn't exist.
+    """
+    import subprocess
+
+    top = subprocess.run(["git", "-C", str(facts_dir), "rev-parse", "--show-toplevel"],
+                         capture_output=True, text=True, check=False)
+    if top.returncode != 0:
+        raise ValueError(f"{facts_dir} is not in a git repository")
+    root = Path(top.stdout.strip()).resolve()
+    rel = facts_dir.resolve().relative_to(root)
+
+    def git(*args, **kw):
+        return subprocess.run(["git", "-C", str(root), *args],
+                              capture_output=True, check=False, **kw)
+
+    if git("rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}").returncode != 0:
+        raise ValueError(f"unknown git ref {ref!r}")
+    listing = git("ls-tree", "--name-only", ref, f"{rel.as_posix()}/", text=True)
+    dest.mkdir(parents=True, exist_ok=True)
+    for name in listing.stdout.split():
+        if name.endswith(".csv"):
+            blob = git("show", f"{ref}:{name}")
+            (dest / Path(name).name).write_bytes(blob.stdout)
+    return dest
+
+
+def fact_uses(sources: dict[str, str]) -> dict[str, list[tuple[str, int, str]]]:
+    """``ns.field`` → [(file, line, expression)] for each ``{{ }}`` that uses it."""
+    uses: dict[str, list[tuple[str, int, str]]] = {}
+    for file, text in sources.items():
+        for m in _EXPR_RE.finditer(text):
+            line = 1 + text.count("\n", 0, m.start())
+            expr = m.group(1).strip()
+            for name in set(re.findall(r"(?<![\w.])([A-Za-z_]\w*(?:\.\w+)+)", expr)):
+                uses.setdefault(name, []).append((file, line, expr))
+    return uses
+
+
+def _render(env, expr: str, context: dict) -> str:
+    try:
+        return env.from_string("{{ " + expr + " }}").render(**context).strip()
+    except Exception as exc:
+        return f"(error: {exc})"
+
+
+@dataclass
+class RenderedChange:
+    name: str
+    old: object
+    new: object
+    old_shown: str          # as the paper renders it (first use's filters)
+    new_shown: str
+    uses: list[tuple[str, int, str]]
+
+
+def compare_facts(old_context: dict, new_context: dict, sources: dict[str, str], env):
+    """(changed, renders_same, n_unreferenced) between two facts contexts.
+
+    ``changed`` and ``renders_same`` are :class:`RenderedChange` lists for
+    facts the paper uses; a fact lands in ``renders_same`` when every
+    expression that uses it renders identically before and after (the change
+    is below display precision).
+    """
+    changes = diff_facts(flatten_facts(old_context), flatten_facts(new_context))
+    uses = fact_uses(sources)
+    changed, same, unreferenced = [], [], 0
+    for c in changes:
+        if c.name not in uses:
+            unreferenced += 1
+            continue
+        u = uses[c.name]
+        pairs = [
+            ("(new)" if c.action == "added" else _render(env, e, old_context),
+             "(removed)" if c.action == "removed" else _render(env, e, new_context))
+            for _, _, e in u
+        ]
+        rc = RenderedChange(c.name, c.old, c.new, pairs[0][0], pairs[0][1], u)
+        if all(a == b for a, b in pairs):
+            same.append(rc)
+        else:
+            rc.old_shown, rc.new_shown = next((a, b) for a, b in pairs if a != b)
+            changed.append(rc)
+    return changed, same, unreferenced
+
+
+def _pct_change(old, new) -> str:
+    if isinstance(old, (int, float)) and isinstance(new, (int, float)) and old:
+        pct = (new - old) / abs(old) * 100
+        return f"{pct:+.1f}%" if abs(pct) < 1 else f"{pct:+.0f}%"
+    return ""
+
+
+def _where(uses) -> str:
+    out, last = [], None
+    for file, line, _ in uses:
+        out.append(f"{file}:{line}" if file != last else f":{line}")
+        last = file
+    return ", ".join(dict.fromkeys(out))
+
+
+def format_compare(changed, same, unreferenced: int, against: str, fmt: str = "text") -> str:
+    """Before/after table of facts the paper uses, against ``against``."""
+    if fmt == "md":
+        lines = [f"Facts changed against `{against}` ({len(changed)}), as the paper renders them:", ""]
+        if changed:
+            lines += ["| Fact | Before | After | Change | Used in |", "|---|---|---|---|---|"]
+            for c in changed:
+                lines.append(
+                    f"| `{c.name}` | {c.old_shown} | {c.new_shown} | "
+                    f"{_pct_change(c.old, c.new)} | {_where(c.uses)} |"
+                )
+        if same:
+            lines += ["", f"Changed but renders the same ({len(same)}): "
+                      + ", ".join(f"`{c.name}` ({c.new_shown})" for c in same)]
+    else:
+        lines = [f"{len(changed)} fact(s) the paper uses changed against {against}:"]
+        for c in changed:
+            pct = _pct_change(c.old, c.new)
+            lines.append(
+                f"  {c.name}: {c.old_shown} → {c.new_shown}"
+                + (f" ({pct})" if pct else "") + f"   {_where(c.uses)}"
+            )
+        if same:
+            lines.append(f"{len(same)} fact(s) changed but render the same:")
+            for c in same:
+                lines.append(f"  {c.name}: {_fmt_value(c.old)} → {_fmt_value(c.new)}, renders {c.new_shown!r}")
+    if unreferenced:
+        if fmt == "md":
+            lines.append("")
+        lines.append(f"(+{unreferenced} changed fact(s) not referenced in the paper)")
+    return "\n".join(lines) + "\n"
