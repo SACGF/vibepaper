@@ -38,6 +38,10 @@ supplementary = ["paper/supplementary.md"]
 # up to this value ("three" rather than "3"). 0 disables. (default: 10)
 # spell_out_up_to = 10
 
+# Facts kept from an earlier run, applied on top of the facts CSVs
+# (see `vibepaper freeze`). Only used if it exists. (default: paper/frozen_facts.csv)
+# frozen_facts = "paper/frozen_facts.csv"
+
 # [claims]
 # Judgement-word tolerances, defined once and used as tests in asserts:
 #   {% assert cov.ci_pct is close_to(95), "'close to nominal'" %}

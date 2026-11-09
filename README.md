@@ -427,6 +427,25 @@ vibepaper raises a hard error if a referenced field doesn't exist. It warns if t
 
 Write every facts CSV with the same line endings, or a regenerated file will diff on every line against its committed copy. Python's `csv.writer` defaults to CRLF (`\r\n`), so pass `lineterminator="\n"`; pandas `to_csv` already writes LF on Linux and macOS. `vibepaper lint` lists facts CSVs whose line endings differ from the rest of the directory.
 
+### Frozen facts: values kept from an earlier run
+
+Some facts are deliberately not re-measured: a benchmark against a remote public service, results from cached external responses, a table frozen at submission. The script that owns the CSV re-emits the whole file, so freeze those values instead of merging them back by hand after each re-run:
+
+```bash
+vibepaper freeze benchmark.uta_remote_tps benchmark.uta_remote_n \
+    --reason "public UTA REST, measured 2025-06; not re-run"
+```
+
+This records the current values in `paper/frozen_facts.csv`, which you commit with the paper:
+
+```csv
+fact,value,reason
+benchmark.uta_remote_n,25,"public UTA REST, measured 2025-06; not re-run"
+benchmark.uta_remote_tps,0.13,"public UTA REST, measured 2025-06; not re-run"
+```
+
+`build`, `diff`, `lint` and `check` apply this file on top of the facts CSVs, so a frozen value survives re-runs and never shows up in `vibepaper diff`. The build prints how many frozen facts it used. To update a frozen value from the current CSVs, run `freeze` again; to drop one, run `vibepaper freeze --remove benchmark.uta_remote_n`. You can also edit the file by hand. Set `frozen_facts` in `[paper]` to use another path.
+
 ### The `facts_dir` variable
 
 The resolved facts directory path is automatically available in templates as `{{ facts_dir }}`. This is useful for image paths that live alongside your facts CSVs — especially when the output directory changes between runs (e.g. timestamped or hashed paths):
@@ -627,6 +646,10 @@ csl = "paper/vancouver.csl"
 # Default: 10
 spell_out_up_to = 10
 
+# Values kept from an earlier run (see `vibepaper freeze`). Only used if it exists.
+# Default: "paper/frozen_facts.csv"
+frozen_facts = "paper/frozen_facts.csv"
+
 [claims]
 # Judgement-word tolerances, used as {% assert x is close_to(95) %}.
 # Kinds: within_pct (relative), within (absolute), factor. Default: none.
@@ -742,6 +765,11 @@ vibepaper diff [--config FILE] [--facts-dir DIR]
 
   vibepaper diff --against main --format md    # before/after facts table for a PR
   vibepaper diff --against-dir run2/facts      # second run: expose non-determinism
+
+vibepaper freeze NS.FIELD ... [--reason TEXT] [--remove] [--config FILE] [--facts-dir DIR]
+
+  Keep facts at their current values through later re-runs, in
+  paper/frozen_facts.csv (fact,value,reason). Commit the file.
 
 vibepaper sync [--config FILE] [--dry-run] [--verbose]
 

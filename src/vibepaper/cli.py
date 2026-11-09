@@ -197,6 +197,36 @@ def main():
         help="Exit 1 if any assert is FAIL or ERROR (MISSING does not fail).",
     )
 
+    # -- freeze -------------------------------------------------------------
+    freeze_parser = subparsers.add_parser(
+        "freeze",
+        help="Keep facts at their current values through later re-runs.",
+        description=(
+            "Record facts that are deliberately not re-measured (a benchmark\n"
+            "against a remote service, results from cached responses, a table\n"
+            "frozen at submission) in paper/frozen_facts.csv, with a reason.\n"
+            "Every command applies that file on top of the facts CSVs, so the\n"
+            "values survive re-runs. Commit the file with the paper.\n\n"
+            "Example:\n"
+            "  vibepaper freeze benchmark.uta_remote_tps benchmark.uta_remote_n \\\n"
+            "      --reason 'public UTA, measured 2025-06; not re-run'\n"
+            "  vibepaper freeze --remove benchmark.uta_remote_n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    freeze_parser.add_argument("facts", nargs="+", metavar="NS.FIELD", help="Facts to freeze.")
+    freeze_parser.add_argument("--reason", default="", help="Why the value is kept (recommended).")
+    freeze_parser.add_argument("--remove", action="store_true",
+                               help="Unfreeze: drop the facts from the frozen file.")
+    freeze_parser.add_argument(
+        "--config", default="paper.toml", metavar="FILE",
+        help="paper.toml config file (default: paper.toml in cwd).",
+    )
+    freeze_parser.add_argument(
+        "--facts-dir", metavar="DIR",
+        help="Facts directory to take current values from (overrides paper.toml).",
+    )
+
     # -- sync ---------------------------------------------------------------
     sync_parser = subparsers.add_parser(
         "sync",
@@ -231,7 +261,7 @@ def main():
     # -- Parse --------------------------------------------------------------
     # If the first arg doesn't look like a subcommand, treat it as a build.
     # This keeps `vibepaper paper.toml` and `vibepaper intro.md` working.
-    known_commands = {"build", "fetch-csl", "wrap", "diff", "lint", "check", "sync",
+    known_commands = {"build", "fetch-csl", "wrap", "diff", "lint", "check", "freeze", "sync",
                       "-h", "--help", "-V", "--version"}
     if len(sys.argv) > 1 and sys.argv[1] not in known_commands:
         args = build_parser.parse_args(sys.argv[1:])
@@ -263,6 +293,8 @@ def _dispatch(args):
         _run_lint(args)
     elif args.command == "check":
         _run_check(args)
+    elif args.command == "freeze":
+        _run_freeze(args)
     elif args.command == "sync":
         _run_sync(args)
 
@@ -453,14 +485,27 @@ def _run_wrap(args):
 # diff
 # ---------------------------------------------------------------------------
 
-def _facts_context(facts_dir: Path) -> dict:
-    """Template context from a facts directory, as ``build`` assembles it."""
+def _facts_context(facts_dir: Path, config: dict | None = None,
+                   project_root: Path | None = None) -> dict:
+    """Template context from a facts directory, as ``build`` assembles it:
+    the facts CSVs, then the paper's frozen facts on top (issue #14)."""
+    from .frozen import apply_frozen
     from .render import load_facts
 
     context: dict = {"facts_dir": str(facts_dir)}
     if facts_dir.exists():
         context.update(load_facts(facts_dir))
+    if config is not None:
+        try:
+            apply_frozen(context, _frozen_path(config, project_root))
+        except ValueError as exc:
+            raise ConfigError(str(exc)) from None
     return context
+
+
+def _frozen_path(config: dict, project_root: Path) -> Path:
+    p = Path(config.get("frozen_facts", "paper/frozen_facts.csv"))
+    return p if p.is_absolute() else project_root / p
 
 
 def _paper_env(project_root: Path, config: dict, facts_dir: Path):
@@ -529,7 +574,7 @@ def _run_diff(args):
     # Re-render current state (Jinja2 + tables, no pandoc)
     build_jinja = build_dir / "jinja" / "paper"
 
-    context = _facts_context(facts_dir)
+    context = _facts_context(facts_dir, config, project_root)
     jinja_env = _paper_env(project_root, config, facts_dir)
 
     try:
@@ -582,9 +627,9 @@ def _diff_against(args, config, project_root, facts_dir, all_sections):
                 print(f"error: {old_dir} is not a directory.", file=sys.stderr)
                 sys.exit(1)
             label = args.against_dir
-        old_context = _facts_context(old_dir)
+        old_context = _facts_context(old_dir, config, project_root)
 
-    new_context = _facts_context(facts_dir)
+    new_context = _facts_context(facts_dir, config, project_root)
     env = _paper_env(project_root, config, facts_dir)
     sources = _source_texts(project_root, all_sections)
     changed, same, unreferenced = compare_facts(old_context, new_context, sources, env)
@@ -640,7 +685,7 @@ def _run_lint(args):
     config, project_root, paths, facts_dir = _section_inputs(args)
     env = context = None
     if facts_dir.exists():
-        context = _facts_context(facts_dir)
+        context = _facts_context(facts_dir, config, project_root)
         env = _paper_env(project_root, config, facts_dir)
 
     findings = lint_files(paths, project_root, env, context)
@@ -669,12 +714,42 @@ def _run_check(args):
     if not facts_dir.exists():
         print(f"warning: facts directory {facts_dir} not found; every assert will be MISSING.",
               file=sys.stderr)
-    context = _facts_context(facts_dir)
+    context = _facts_context(facts_dir, config, project_root)
     env = _paper_env(project_root, config, facts_dir)
     results = check_files(paths, project_root, env, context)
     print(format_results(results))
     if args.check and any(r.status in ("FAIL", "ERROR") for r in results):
         sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# freeze
+# ---------------------------------------------------------------------------
+
+def _run_freeze(args):
+    from .frozen import freeze, unfreeze
+
+    config_path = Path(args.config).resolve()
+    if not config_path.exists():
+        print(f"error: {config_path} not found.", file=sys.stderr)
+        sys.exit(1)
+    config = load_config(config_path)
+    project_root = config_path.parent
+    path = _frozen_path(config, project_root)
+    try:
+        if args.remove:
+            messages = unfreeze(path, args.facts)
+        else:
+            facts_dir = Path(args.facts_dir).resolve() if args.facts_dir \
+                else project_root / config["facts_dir"]
+            # Current values from the CSVs, not from the frozen file
+            messages = freeze(path, _facts_context(facts_dir), args.facts, args.reason)
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        sys.exit(1)
+    for m in messages:
+        print(m)
+    print(f"Wrote {path} — commit it with the paper.")
 
 
 # ---------------------------------------------------------------------------

@@ -30,6 +30,7 @@ from .render import (
     sanity_check,
 )
 from .tables import process_file as render_tables
+from .frozen import apply_frozen
 from .tolerances import claim_tests
 
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -52,6 +53,7 @@ def load_config(config_path: Path) -> dict:
       paper.reference_doc   = "paper/reference.docx"  (only used if file exists)
       paper.spell_out_up_to = 10  (word filters spell out integers up to this)
       claims                = {}  (judgement-word tolerances, e.g. close_to)
+      paper.frozen_facts    = "paper/frozen_facts.csv"  (values kept from an earlier run)
     """
     with open(config_path, "rb") as fh:
         raw = tomllib.load(fh)
@@ -77,6 +79,7 @@ def load_config(config_path: Path) -> dict:
         "csl":           paper.get("csl", None),
         "spell_out_up_to": int(paper.get("spell_out_up_to", DEFAULT_SPELL_OUT_UP_TO)),
         "claims":        dict(raw.get("claims", {})),
+        "frozen_facts":  paper.get("frozen_facts", "paper/frozen_facts.csv"),
     }
 
 
@@ -94,6 +97,7 @@ def minimal_config(sections: list[str], name: str | None = None) -> dict:
         "csl":           None,
         "spell_out_up_to": DEFAULT_SPELL_OUT_UP_TO,
         "claims":        {},
+        "frozen_facts":  "paper/frozen_facts.csv",
     }
 
 
@@ -422,6 +426,14 @@ def run_build(
         context.update(load_facts(facts_dir))
     else:
         log.warning("%s not found — template context will be empty.", facts_dir)
+    frozen_path = _resolve(config.get("frozen_facts", "paper/frozen_facts.csv"), project_root)
+    try:
+        frozen = apply_frozen(context, frozen_path)
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from None
+    if frozen:
+        print(f"[vibepaper] {len(frozen)} frozen fact(s) from {frozen_path.name} "
+              "(kept from an earlier run).", file=sys.stderr)
     if extra_context:
         for key, value in extra_context.items():
             if key in context and isinstance(context[key], dict) and isinstance(value, dict):
