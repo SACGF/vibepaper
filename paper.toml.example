@@ -52,3 +52,5 @@ supplementary = ["paper/supplementary.md"]
 # [lint]
 # Facts that `vibepaper lint --unused` should not report (globs on ns.field).
 # unused_ok = ["bench.raw_*"]
+# Design values `vibepaper lint --numbers` accepts in prose.
+# allowed_numbers = ["95%", "0.05"]

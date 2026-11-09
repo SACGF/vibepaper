@@ -337,6 +337,13 @@ The second kind of finding needs facts, and is reported even in covered paragrap
 unused_ok = ["bench.raw_*", "clinvar_residual_positions.*"]
 ```
 
+`vibepaper lint --numbers` also flags numbers typed into the prose of a paragraph that uses facts, when they look like results: decimals, and numbers with `%`, `pp`, `percent`, `-fold` or `x`. A result copied by hand from an old run looks the same as a fact, and lint can't otherwise see it. Plain integers ("Figure 2", "25 of 25") and version strings are not flagged. Most hits will be design values (titration levels, the nominal 95%, p < 0.05); list those once in `paper.toml`, or accept a paragraph with `{# lint-ok: reason #}`. Anything left is probably a result that should be a fact. When an assert in the paragraph compares a fact with the same literal (`{% assert x.offset < 0.29 %}` next to "about 0.29 percentage points"), the finding says so: that claim is checked against a number nobody re-measured.
+
+```toml
+[lint]
+allowed_numbers = ["95%", "0.05", "0.1%", "0.5%", "1%", "1,000x"]
+```
+
 Lint also lists facts CSVs whose line endings (CRLF or LF) differ from the rest of the facts directory. This is a note only and does not make `--check` fail.
 
 For a word that really is a hedge or a judgement ("just", "only", "striking"), accept it by adding `{# lint-ok: reason #}` anywhere in the paragraph. It can go on a line of its own: like an assert, it leaves no blank line in the output. It accepts the claim words (and a deliberate mix of tool versions, see [provenance](#provenance-which-versions-produced-a-facts-file)) only: a fact that rounds to 100.0 or 0.0 beside "every" or "none" is still flagged.
@@ -728,6 +735,9 @@ close_to = { within_pct = 10 }
 # Facts that `vibepaper lint --unused` should not report (globs on ns.field).
 # Default: []
 unused_ok = ["bench.raw_*"]
+# Design values `vibepaper lint --numbers` accepts in prose.
+# Default: []
+allowed_numbers = ["95%", "0.05"]
 ```
 
 ### Word reference document
@@ -811,14 +821,16 @@ vibepaper wrap <FILE.md ...> [--width N] [--check]
   vibepaper wrap paper/*.md --width 72         # custom width
   vibepaper wrap paper/*.md --check            # exit 1 if changes needed (CI)
 
-vibepaper lint [FILE.md ...] [--config FILE] [--facts-dir DIR] [--unused] [--check]
+vibepaper lint [FILE.md ...] [--config FILE] [--facts-dir DIR] [--unused] [--numbers]
+               [--check]
 
   List sentences that reference a {{ fact }} and contain a claim word
   (rises, within, nearly, all, every, dominated, ...) that nothing covers: no
   word filter on one of the sentence's facts, and no {% assert %} in the
   paragraph that reads one of them. Also lists facts that round to 100.0/0.0
   beside "every"/"none". Mark a paragraph {# lint-ok: reason #} to accept its
-  wording. --unused also lists facts the paper never references.
+  wording. --unused also lists facts the paper never references; --numbers
+  flags result-like numbers typed into paragraphs that use facts.
 
   vibepaper lint                               # sections from paper.toml
   vibepaper lint --check                       # exit 1 if anything flagged (CI)

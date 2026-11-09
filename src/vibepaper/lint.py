@@ -39,6 +39,20 @@ _ASSERT_TAG_RE = re.compile(r"\{%-?\s*assert\b.*?-?%\}", re.DOTALL)
 _LINT_OK_RE = re.compile(r"\{#-?\s*lint-ok\b")
 _WORD_FILTER_RE = re.compile(r"\|\s*(" + "|".join(COVERING_FILTER_NAMES) + r")\b")
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z(\[\x00])")
+# A number typed into prose that looks like a result: a decimal, or a number
+# with a unit (12%, 0.3 pp, 4-fold, 100x). Plain integers ("Figure 2", "25 of
+# 25") are not flagged; dotted versions (0.2.37) are skipped. See issue #22.
+_NUMBER_RE = re.compile(
+    r"(?<![\w.,])(?P<num>\d+(?:,\d{3})*(?:\.\d+)?)(?![\d]|\.\d|,\d{3})"
+    r"(?P<unit>\s*%|\s+percent(?:age points?)?\b|\s*pp\b|-fold\b|\s*×|x(?!\w))?"
+)
+_NOT_PROSE_RE = re.compile(
+    r"`[^`]*`"                      # inline code
+    r"|\]\([^)]*\)"                # link / image target
+    r"|\[@[^\]]*\]"                # citation
+    r"|<?\w+://\S+"                 # URL
+    r"|\b10\.\d{4,}/\S+"            # DOI
+)
 _ROUNDED_TOTAL_RE = re.compile(r"^\s*(100(\.0+)?|0\.0+)\s*%?\s*$")
 _FACT = "\x00{}\x00"
 
@@ -47,7 +61,7 @@ _FACT = "\x00{}\x00"
 class Finding:
     file: str
     line: int
-    kind: str                 # "unchecked", "rounding", "provenance" or "type"
+    kind: str                 # "unchecked", "rounding", "number", "provenance" or "type"
     sentence: str
     words: list[str] = field(default_factory=list)
     detail: str = ""
@@ -56,7 +70,7 @@ class Finding:
         text = " ".join(self.sentence.split())
         if len(text) > 160:
             text = text[:157] + "..."
-        if self.kind in ("rounding", "provenance", "type"):
+        if self.kind in ("rounding", "number", "provenance", "type"):
             return f"{self.file}:{self.line}: {self.detail}\n    \"{text}\""
         return f"{self.file}:{self.line}: {', '.join(self.words)}\n    \"{text}\""
 
@@ -100,8 +114,51 @@ def _is_table(para: str) -> bool:
     return all(l.lstrip().startswith("|") for l in para.splitlines() if l.strip())
 
 
-def lint_text(text: str, filename: str, env=None, context: dict | None = None) -> list[Finding]:
-    """Lint one template source. ``env`` and ``context`` enable the rounding check."""
+def _normalise_number(token: str) -> str:
+    return re.sub(r"\s+", "", token).lower()
+
+
+def _assert_literals(tag: str) -> set[float]:
+    """Numeric constants an assert's condition compares facts with."""
+    try:
+        call = next(_PARSE_ENV.parse(tag).find_all(nodes.CallBlock)).call
+    except Exception:
+        return set()
+    return {
+        float(c.value) for c in call.args[0].find_all(nodes.Const)
+        if isinstance(c.value, (int, float)) and not isinstance(c.value, bool)
+    }
+
+
+def _hand_typed_numbers(prose: str, allowed: set[str], literals: set[float]) -> list[str]:
+    """Descriptions of result-like numbers typed into ``prose``."""
+    out = []
+    for m in _NUMBER_RE.finditer(_NOT_PROSE_RE.sub(" ", prose)):
+        num, unit = m.group("num"), m.group("unit")
+        if "." not in num and not unit:
+            continue
+        token = m.group(0).strip()
+        if _normalise_number(token) in allowed or _normalise_number(num) in allowed:
+            continue
+        detail = f"hand-typed number '{token}'"
+        if float(num.replace(",", "")) in literals:
+            detail += " (an assert compares a fact with this same literal)"
+        out.append(detail)
+    return out
+
+
+def lint_text(
+    text: str,
+    filename: str,
+    env=None,
+    context: dict | None = None,
+    numbers: bool = False,
+    allowed_numbers=(),
+) -> list[Finding]:
+    """Lint one template source. ``env`` and ``context`` enable the rounding
+    check. ``numbers`` also flags result-like numbers typed into the prose of a
+    paragraph that uses facts, except those in ``allowed_numbers`` (issue #22)."""
+    allowed = {_normalise_number(a) for a in allowed_numbers}
     text = _blank_out(text, _RAW_RE)
     text = _blank_out(text, _HTML_COMMENT_RE)
     findings: list[Finding] = []
@@ -114,8 +171,11 @@ def lint_text(text: str, filename: str, env=None, context: dict | None = None) -
         # "every" in another (issue #17).
         lint_ok = bool(_LINT_OK_RE.search(para))
         asserted: set[str] = set()
+        literals: set[float] = set()
         for tag in _ASSERT_TAG_RE.findall(para):
             asserted |= _refs(tag)
+            if numbers:
+                literals |= _assert_literals(tag)
 
         exprs: list[str] = []
 
@@ -133,11 +193,14 @@ def lint_text(text: str, filename: str, env=None, context: dict | None = None) -
             pos = offset + len(sentence)
             line = start + masked.count("\n", 0, offset)
             ids = [int(i) for i in re.findall(r"\x00(\d+)\x00", sentence)]
+            prose = re.sub(r"\x00\d+\x00", " ", sentence)
+            original = re.sub(r"\x00(\d+)\x00", lambda m: "{{" + exprs[int(m.group(1))] + "}}", sentence)
+            if numbers and not lint_ok:
+                for detail in _hand_typed_numbers(prose, allowed, literals):
+                    findings.append(Finding(filename, line, "number", original, detail=detail))
             if not ids:
                 continue
-            prose = re.sub(r"\x00\d+\x00", " ", sentence)
             words = claim_words(prose)
-            original = re.sub(r"\x00(\d+)\x00", lambda m: "{{" + exprs[int(m.group(1))] + "}}", sentence)
 
             # Coverage is per sentence (issue #17): a word filter covers the
             # sentence it is in, and an assert covers each sentence that uses
@@ -255,7 +318,8 @@ def type_findings(text: str, filename: str, context: dict) -> list[Finding]:
     return findings
 
 
-def lint_files(paths: list[Path], project_root: Path, env=None, context=None) -> list[Finding]:
+def lint_files(paths: list[Path], project_root: Path, env=None, context=None,
+               numbers: bool = False, allowed_numbers=()) -> list[Finding]:
     findings: list[Finding] = []
     for path in paths:
         if not path.exists():
@@ -265,7 +329,7 @@ def lint_files(paths: list[Path], project_root: Path, env=None, context=None) ->
         except ValueError:
             name = str(path)
         text = path.read_text()
-        findings.extend(lint_text(text, name, env, context))
+        findings.extend(lint_text(text, name, env, context, numbers, allowed_numbers))
         if context is not None:
             findings.extend(provenance_findings(text, name, context))
             findings.extend(type_findings(text, name, context))
@@ -385,6 +449,9 @@ def format_findings(findings: list[Finding]) -> str:
     typed = [f for f in findings if f.kind == "type"]
     if typed:
         summary.append(f"{len(typed)} percent(s) may print at the wrong magnitude")
+    numbers = [f for f in findings if f.kind == "number"]
+    if numbers:
+        summary.append(f"{len(numbers)} hand-typed number(s) in paragraphs that use facts")
     out.append("")
     out.append("; ".join(summary) + f" ({files} file(s)).")
     if unchecked:
@@ -392,6 +459,12 @@ def format_findings(findings: list[Finding]) -> str:
             "For each: use a word filter, add an {% assert %} for the condition the "
             "wording depends on, or add {# lint-ok: reason #} to the paragraph."
         )
-    else:
+    elif not numbers:
         out.append("Add {# lint-ok: reason #} to a paragraph to accept it as written.")
+    if numbers:
+        out.append(
+            "For a hand-typed number: make it a fact, or if it is a design value "
+            "(a titration level, the nominal 95%), add it to [lint] allowed_numbers "
+            "in paper.toml or add {# lint-ok: reason #}."
+        )
     return "\n".join(out)
