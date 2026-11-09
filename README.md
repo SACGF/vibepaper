@@ -648,6 +648,8 @@ Output:
 Flags:
   --verbose, -v         Print detailed progress
 
+vibepaper --version     Print the installed version
+
 vibepaper fetch-csl <style> [--output FILE]
 
   Download a CSL style file from zotero.org/styles to paper/<style>.csl.
@@ -676,6 +678,15 @@ vibepaper lint [FILE.md ...] [--config FILE] [--facts-dir DIR] [--check]
 
   vibepaper lint                               # sections from paper.toml
   vibepaper lint --check                       # exit 1 if anything flagged (CI)
+
+vibepaper check [FILE.md ...] [--config FILE] [--facts-dir DIR] [--check]
+
+  Evaluate every {% assert %} against the facts that exist, without a build.
+  Reports each as PASS, FAIL (with fact values), MISSING (facts file or
+  field not there yet) or ERROR.
+
+  vibepaper check                              # sections from paper.toml
+  vibepaper check --check                      # exit 1 on FAIL/ERROR, not MISSING
 
 vibepaper diff [--config FILE]
 
