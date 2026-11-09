@@ -1,9 +1,12 @@
 """Tests for the {% assert %} tag (issue #9)."""
 
+import subprocess
+import sys
+
 import pytest
 
 from vibepaper.assertions import FactAssertionError
-from vibepaper.render import make_jinja_env, render_file
+from vibepaper.render import AssertionsFailed, make_jinja_env, render_file
 
 
 def test_true_assert_renders_nothing_and_keeps_paragraph_whole(render):
@@ -46,14 +49,39 @@ def test_compound_condition(render):
         render(t, e={"old": 76.2, "mid": 80.0, "recent": 81.1})
 
 
-def test_render_file_names_file_and_line(tmp_path):
+def test_render_file_reports_every_failure_with_file_and_line(tmp_path):
     src = tmp_path / "results.md"
-    src.write_text("# R\n\n{% assert v.n == 0, 'every one resolves' %}\nEvery one.\n")
+    src.write_text(
+        "# R\n\n{% assert v.n == 0, 'every one resolves' %}\nEvery one.\n"
+        "{% assert v.m > 1, 'more than one' %}\n"
+    )
     env = make_jinja_env(tmp_path)
-    with pytest.raises(RuntimeError) as exc:
-        render_file(src, tmp_path / "build", {"v": {"n": 6337}}, env)
-    assert f"{src}:3: assertion failed: every one resolves" in str(exc.value)
-    assert "v.n = 6337" in str(exc.value)
+    with pytest.raises(AssertionsFailed) as exc:
+        render_file(src, tmp_path / "build", {"v": {"n": 6337, "m": 0}}, env)
+    assert exc.value.failures == [
+        f"{src}:3: assertion failed: every one resolves\n    v.n = 6337",
+        f"{src}:5: assertion failed: more than one\n    v.m = 0",
+    ]
+    # Outside render_file, a false assert still raises at once
+    with pytest.raises(FactAssertionError):
+        env.from_string("{% assert false %}").render()
+
+
+def test_build_reports_failures_from_every_section_without_traceback(tmp_path):
+    # Issue #18: one build lists all false asserts (including in includes),
+    # then exits 1 with no Python traceback.
+    (tmp_path / "a.md").write_text("{% assert 1 > 2, 'first' %}\nA.\n")
+    (tmp_path / "inc.md").write_text("\n{% assert 3 > 4, 'included' %}\n")
+    (tmp_path / "b.md").write_text("B.\n{% include 'inc.md' %}\n")
+    proc = subprocess.run(
+        [sys.executable, "-m", "vibepaper", "build", "a.md", "b.md"],
+        cwd=tmp_path, capture_output=True, text=True,
+    )
+    assert proc.returncode == 1
+    assert "Traceback" not in proc.stderr
+    assert "2 assertion(s) failed" in proc.stderr
+    assert f"{tmp_path / 'a.md'}:1: assertion failed: first" in proc.stderr
+    assert f"{tmp_path / 'inc.md'}:2: assertion failed: included" in proc.stderr
 
 
 def test_word_filter_error_names_file(tmp_path):

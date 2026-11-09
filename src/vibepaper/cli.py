@@ -17,6 +17,7 @@ from .build import (
     pdf_toolchain_error,
     run_build,
 )
+from .render import TemplateRenderError
 
 
 def main():
@@ -327,7 +328,7 @@ def _run_build(args):
         run_build(config, project_root, output_dir, combined=args.combined,
                   extra_context=extra_context, pdf=args.pdf, md=args.md,
                   pdf_if_available=args.pdf_if_available)
-    except PdfToolchainError as e:
+    except (PdfToolchainError, TemplateRenderError) as e:
         print(f"error: {e}", file=sys.stderr)
         sys.exit(1)
 
@@ -461,9 +462,13 @@ def _run_diff(args):
     jinja_env = _paper_env(project_root, config, facts_dir)
     all_sections = config["sections"] + config["supplementary"]
 
-    for section in all_sections:
-        section_path = project_root / section
-        render_jinja(section_path, build_jinja, context, jinja_env)
+    try:
+        for section in all_sections:
+            section_path = project_root / section
+            render_jinja(section_path, build_jinja, context, jinja_env)
+    except TemplateRenderError as e:
+        print(f"error: {e}", file=sys.stderr)
+        sys.exit(1)
     for section in all_sections:
         section_name = Path(section).name
         render_tables(build_jinja / section_name, build_paper, project_root)

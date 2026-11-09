@@ -23,7 +23,7 @@ from jinja2 import (
 
 from jinja2.ext import Extension
 
-from .assertions import AssertExtension, FactAssertionError
+from .assertions import AssertExtension, FactAssertionError, collect_failures
 from .words import DEFAULT_SPELL_OUT_UP_TO, FILTERS as WORD_FILTERS
 
 log = logging.getLogger(__name__)
@@ -36,6 +36,21 @@ _SANITY_RE = re.compile(
     r"|\bundefined\b"     # Jinja undefined leak
     r"|\{\{"              # unresolved template tag
 )
+
+
+class TemplateRenderError(RuntimeError):
+    """A paper section failed to render. The message is complete on its own,
+    so the CLI prints it without a traceback."""
+
+
+class AssertionsFailed(TemplateRenderError):
+    """One or more ``{% assert %}`` conditions were false."""
+
+    def __init__(self, failures: list[str]):
+        self.failures = failures
+        super().__init__(
+            f"{len(failures)} assertion(s) failed:\n" + "\n".join(failures)
+        )
 
 
 def load_facts(facts_dir: Path) -> dict:
@@ -208,18 +223,21 @@ def render_file(
     context: dict,
     env: Environment,
 ) -> Path:
-    """Render Jinja2 templates in a single markdown file and write output."""
+    """Render Jinja2 templates in a single markdown file and write output.
+
+    Raises :class:`TemplateRenderError`; :class:`AssertionsFailed` lists every
+    false ``{% assert %}`` in the file.
+    """
     content = input_path.read_text()
     try:
-        rendered = env.from_string(content).render(**context)
+        with collect_failures(env) as failures:
+            rendered = env.from_string(content).render(**context)
     except UndefinedError as exc:
-        raise RuntimeError(f"Template error in {input_path}: {exc}") from exc
-    except FactAssertionError as exc:
-        raise RuntimeError(exc.describe(str(input_path))) from exc
+        raise TemplateRenderError(f"Template error in {input_path}: {exc}") from exc
     except ValueError as exc:
         # Word filters raise ValueError when the claim no longer fits the fact
         # (e.g. within_pct above 50%).
-        raise RuntimeError(f"Template error in {input_path}: {exc}") from exc
+        raise TemplateRenderError(f"Template error in {input_path}: {exc}") from exc
     except TemplateNotFound as exc:
         # {% include %} is confined to trusted roots (the project tree and the
         # user-provided facts_dir). An absolute path that lands here is outside
@@ -235,10 +253,13 @@ def render_file(
                 "via --facts-dir / config), then include it from there. "
                 "See issue #5."
             )
-        raise RuntimeError(
+        raise TemplateRenderError(
             f"Template error in {input_path}: could not find include "
             f"{missing!r}.{hint}"
         ) from exc
+    if failures:
+        # Every false assert in the file, not just the first (issue #18)
+        raise AssertionsFailed([f.describe(str(input_path)) for f in failures])
 
     output_path = build_dir / input_path.name
     build_dir.mkdir(parents=True, exist_ok=True)

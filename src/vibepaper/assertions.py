@@ -5,10 +5,14 @@
 
 The tag renders nothing (its line is removed from the output). If the condition
 is false the build fails and the error names the message, the file and line, and
-the current value of every fact the condition reads. Comparisons in an assert do
+the current value of every fact the condition reads. ``render_file`` collects
+every failed assert (see :func:`collect_failures`) so one build reports them
+all (issue #18). Comparisons in an assert do
 not break "no arithmetic in templates", because nothing computed is printed.
 See issue #9.
 """
+
+from contextlib import contextmanager
 
 from jinja2 import nodes
 from jinja2.ext import Extension
@@ -18,13 +22,15 @@ from jinja2.lexer import Token
 class FactAssertionError(RuntimeError):
     """An ``{% assert %}`` condition was false at render time."""
 
-    def __init__(self, message: str, lineno: int, values: dict):
+    def __init__(self, message: str, lineno: int, values: dict, template: str | None = None):
         self.assert_message = message
         self.lineno = lineno
         self.values = values
+        self.template = template      # set when the assert is in an {% include %}d file
         super().__init__(self.describe())
 
     def describe(self, filename: str | None = None) -> str:
+        filename = self.template or filename
         where = f"{filename}:{self.lineno}" if filename else f"line {self.lineno}"
         lines = [f"{where}: assertion failed: {self.assert_message}"]
         for name, value in self.values.items():
@@ -52,6 +58,19 @@ def _collect_refs(node, found: dict):
         return
     for child in node.iter_child_nodes():
         _collect_refs(child, found)
+
+
+@contextmanager
+def collect_failures(env):
+    """Within the block, a false assert rendered by ``env`` is appended to the
+    yielded list instead of raising, so rendering carries on to the next one."""
+    previous = getattr(env, "_assert_failures", None)
+    failures: list[FactAssertionError] = []
+    env._assert_failures = failures
+    try:
+        yield failures
+    finally:
+        env._assert_failures = previous
 
 
 class AssertExtension(Extension):
@@ -96,13 +115,18 @@ class AssertExtension(Extension):
 
         call = self.call_method(
             "_check",
-            [condition, message, nodes.Const(lineno), ref_names, ref_values],
+            [condition, message, nodes.Const(lineno), nodes.Const(parser.filename),
+             ref_names, ref_values],
             lineno=lineno,
         )
         return nodes.CallBlock(call, [], [], []).set_lineno(lineno)
 
-    def _check(self, condition, message, lineno, ref_names, ref_values, caller):
+    def _check(self, condition, message, lineno, template, ref_names, ref_values, caller):
         if not condition:
             msg = message if message is not None else "condition is false"
-            raise FactAssertionError(str(msg), lineno, dict(zip(ref_names, ref_values)))
+            error = FactAssertionError(str(msg), lineno, dict(zip(ref_names, ref_values)), template)
+            failures = getattr(self.environment, "_assert_failures", None)
+            if failures is None:
+                raise error
+            failures.append(error)
         return ""

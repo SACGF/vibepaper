@@ -22,7 +22,13 @@ try:
 except ImportError:
     import tomli as tomllib  # type: ignore
 
-from .render import load_facts, make_jinja_env, render_file as render_jinja, sanity_check
+from .render import (
+    AssertionsFailed,
+    load_facts,
+    make_jinja_env,
+    render_file as render_jinja,
+    sanity_check,
+)
 from .tables import process_file as render_tables
 
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -418,10 +424,18 @@ def run_build(
     )
 
     jinja_warnings = []
+    assert_failures: list[str] = []
     for section in all_sections:
         section_path = _resolve(section, project_root)
-        out = render_jinja(section_path, build_jinja, context, jinja_env)
+        try:
+            out = render_jinja(section_path, build_jinja, context, jinja_env)
+        except AssertionsFailed as exc:
+            # Keep going so one build reports every false assert (issue #18)
+            assert_failures.extend(exc.failures)
+            continue
         jinja_warnings.extend(sanity_check(out))
+    if assert_failures:
+        raise AssertionsFailed(assert_failures)
     if jinja_warnings:
         print("WARNING: suspicious content in rendered output:", file=sys.stderr)
         for w in jinja_warnings:

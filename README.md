@@ -267,12 +267,15 @@ every one that resolves under the substitute gives the same coordinate
 {% assert eras.old_uta < eras.mid_uta and eras.recent_uta < eras.mid_uta, "UTA lowest on oldest, mid era is best" %}
 ```
 
-An assert renders nothing, and its line is removed, so it does not split the paragraph below it. If the condition is false, the build fails with the message, the file and line, and every fact the condition reads:
+An assert renders nothing, and its line is removed, so it does not split the paragraph below it. If the condition is false, the build fails with the message, the file and line, and every fact the condition reads. The build checks every assert in every section before it stops, so a re-run that breaks several claims lists them all at once:
 
 ```
-RuntimeError: paper/results.md:8: assertion failed: 'dominated by indel ... then paralog' order
+error: 2 assertion(s) failed:
+paper/results.md:8: assertion failed: 'dominated by indel ... then paralog' order
     residual.indel_count = 100
     residual.multi_locus_count = 418
+paper/discussion.md:31: assertion failed: 'every transcript resolves'
+    resolve.unresolved_n = 3
 ```
 
 Comparisons inside an assert do not break "no arithmetic in templates", because nothing computed is printed. Name the sentence the assert protects in its message.
