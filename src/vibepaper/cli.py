@@ -496,7 +496,7 @@ def _run_diff(args):
 # ---------------------------------------------------------------------------
 
 def _run_lint(args):
-    from .lint import lint_files, format_findings
+    from .lint import format_findings, line_ending_issues, lint_files
 
     config_path = Path(args.config).resolve()
     if config_path.exists():
@@ -530,6 +530,15 @@ def _run_lint(args):
 
     findings = lint_files(paths, project_root, env, context)
     print(format_findings(findings))
+    if facts_dir.exists():
+        endings = line_ending_issues(facts_dir, project_root)
+        if endings:
+            print(
+                "\nFacts CSVs with inconsistent line endings (a regenerated file "
+                "then diffs on every line;\nwrite with csv.writer(f, "
+                "lineterminator=\"\\n\") or pandas to_csv):"
+            )
+            print("\n".join("  " + e for e in endings))
     if args.check and findings:
         sys.exit(1)
 

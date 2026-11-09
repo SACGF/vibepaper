@@ -153,6 +153,40 @@ def lint_files(paths: list[Path], project_root: Path, env=None, context=None) ->
     return findings
 
 
+def line_ending_issues(facts_dir: Path, project_root: Path | None = None) -> list[str]:
+    """Facts CSVs whose line endings don't match the rest of the directory.
+
+    Flags a file that mixes CRLF and LF, and, when the directory has both CRLF
+    and LF files, the files in the minority. Mixed endings make a regenerated
+    file show as changed on every line. ``csv.writer`` defaults to CRLF;
+    pandas ``to_csv`` uses LF on Linux and macOS. See issue #20.
+    """
+    def show(path: Path) -> str:
+        try:
+            return str(path.relative_to(project_root)) if project_root else str(path)
+        except ValueError:
+            return str(path)
+
+    crlf, lf, issues = [], [], []
+    for path in sorted(facts_dir.glob("*.csv")):
+        data = path.read_bytes()
+        n_crlf = data.count(b"\r\n")
+        n_lf = data.count(b"\n") - n_crlf
+        if n_crlf and n_lf:
+            issues.append(f"{show(path)}: mixes CRLF and LF line endings")
+        elif n_crlf:
+            crlf.append(path)
+        elif n_lf:
+            lf.append(path)
+    if crlf and lf:
+        minority, kind, other, n_other = (
+            (crlf, "CRLF", "LF", len(lf)) if len(crlf) <= len(lf) else (lf, "LF", "CRLF", len(crlf))
+        )
+        for path in minority:
+            issues.append(f"{show(path)}: {kind} line endings; {n_other} other facts CSV(s) use {other}")
+    return issues
+
+
 def format_findings(findings: list[Finding]) -> str:
     if not findings:
         return "No unchecked claim words next to facts."

@@ -7,6 +7,7 @@ All notable changes to vibepaper are documented here.
 ### Added
 
 - **`vibepaper --version`** (also `-V`, and `python -m vibepaper`) prints the installed version ([#19](https://github.com/SACGF/vibepaper/issues/19)).
+- **`vibepaper lint` notes facts CSVs with inconsistent line endings** ([#20](https://github.com/SACGF/vibepaper/issues/20)): a file that mixes CRLF and LF, or a file whose endings differ from most of the facts directory. `csv.writer` defaults to CRLF, so one script's output then diffs on every line. The README now recommends `lineterminator="\n"`. This is a note and does not fail `--check`.
 
 ### Changed
 

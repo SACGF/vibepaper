@@ -1,7 +1,7 @@
 """Tests for `vibepaper lint` and the claim-word lexicon (issue #9)."""
 
 from vibepaper.claims import claim_words
-from vibepaper.lint import lint_text, format_findings
+from vibepaper.lint import format_findings, line_ending_issues, lint_text
 from vibepaper.render import make_jinja_env
 
 
@@ -83,3 +83,19 @@ def test_format_findings_summary():
     assert "x.md:1: under, nearly" in out
     assert "1 sentence(s)" in out
     assert format_findings([]).startswith("No unchecked")
+
+
+def test_line_ending_issues_flags_minority_and_mixed_files(tmp_path):
+    # Issue #20: csv.writer defaults to CRLF, so one script's output diffs on
+    # every line against the rest.
+    for name in ("a", "b", "c"):
+        (tmp_path / f"{name}.csv").write_bytes(b"field,value\nn,1\n")
+    (tmp_path / "crlf.csv").write_bytes(b"field,value\r\nn,1\r\n")
+    (tmp_path / "mixed.csv").write_bytes(b"field,value\r\nn,1\n")
+    assert line_ending_issues(tmp_path, tmp_path) == [
+        "mixed.csv: mixes CRLF and LF line endings",
+        "crlf.csv: CRLF line endings; 3 other facts CSV(s) use LF",
+    ]
+    (tmp_path / "mixed.csv").unlink()
+    (tmp_path / "crlf.csv").unlink()
+    assert line_ending_issues(tmp_path, tmp_path) == []

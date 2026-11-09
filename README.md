@@ -300,6 +300,8 @@ paper/results.md:11: {{ bench.matched_pct | dp(1) }} renders '100.0' but the val
 
 The second kind of finding needs facts, and is reported even in covered paragraphs: a value that only *rounds* to 100.0 or 0.0 next to "every" or "none".
 
+Lint also lists facts CSVs whose line endings (CRLF or LF) differ from the rest of the facts directory. This is a note only and does not make `--check` fail.
+
 For a word that really is a hedge or a judgement ("just", "only", "striking"), accept it by adding `{# lint-ok: reason #}` anywhere in the paragraph. It can go on a line of its own: like an assert, it leaves no blank line in the output.
 
 ### `vibepaper diff`: what changed, and which words to re-read
@@ -366,6 +368,8 @@ to {{ transcript_growth.v115_count | commas }}.
 ```
 
 vibepaper raises a hard error if a referenced field doesn't exist. It warns if the rendered output contains literal `nan`, `None`, or unresolved `{{`.
+
+Write every facts CSV with the same line endings, or a regenerated file will diff on every line against its committed copy. Python's `csv.writer` defaults to CRLF (`\r\n`), so pass `lineterminator="\n"`; pandas `to_csv` already writes LF on Linux and macOS. `vibepaper lint` lists facts CSVs whose line endings differ from the rest of the directory.
 
 ### The `facts_dir` variable
 
