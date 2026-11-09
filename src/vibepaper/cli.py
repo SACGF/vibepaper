@@ -9,6 +9,7 @@ from pathlib import Path
 
 from . import version as VIBEPAPER_VERSION
 from .build import (
+    ConfigError,
     PdfToolchainError,
     load_config,
     load_json_data,
@@ -242,6 +243,14 @@ def main():
         parser.print_help()
         sys.exit(0)
 
+    try:
+        _dispatch(args)
+    except ConfigError as e:
+        print(f"error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _dispatch(args):
     if args.command == "build":
         _run_build(args)
     elif args.command == "fetch-csl":
@@ -462,6 +471,7 @@ def _paper_env(project_root: Path, config: dict, facts_dir: Path):
         project_root,
         extra_search_paths=[facts_dir] if facts_dir.exists() else None,
         spell_out_up_to=config.get("spell_out_up_to", DEFAULT_SPELL_OUT_UP_TO),
+        claims=config.get("claims"),
     )
 
 

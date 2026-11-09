@@ -37,3 +37,10 @@ supplementary = ["paper/supplementary.md"]
 # Word filters (approx, orders_of_magnitude, number_word) spell out integers
 # up to this value ("three" rather than "3"). 0 disables. (default: 10)
 # spell_out_up_to = 10
+
+# [claims]
+# Judgement-word tolerances, defined once and used as tests in asserts:
+#   {% assert cov.ci_pct is close_to(95), "'close to nominal'" %}
+# Kinds: within_pct (relative to the second value), within (absolute), factor.
+# close_to = { within_pct = 10 }
+# comparable_to = { factor = 2 }

@@ -18,15 +18,19 @@ from jinja2 import nodes
 from jinja2.ext import Extension
 from jinja2.lexer import Token
 
+from .tolerances import describe
+
 
 class FactAssertionError(RuntimeError):
     """An ``{% assert %}`` condition was false at render time."""
 
-    def __init__(self, message: str, lineno: int, values: dict, template: str | None = None):
+    def __init__(self, message: str, lineno: int, values: dict, template: str | None = None,
+                 notes: list[str] | None = None):
         self.assert_message = message
         self.lineno = lineno
         self.values = values
         self.template = template      # set when the assert is in an {% include %}d file
+        self.notes = notes or []      # e.g. the [claims] tolerance a test used
         super().__init__(self.describe())
 
     def describe(self, filename: str | None = None) -> str:
@@ -35,6 +39,7 @@ class FactAssertionError(RuntimeError):
         lines = [f"{where}: assertion failed: {self.assert_message}"]
         for name, value in self.values.items():
             lines.append(f"    {name} = {value!r}")
+        lines.extend(f"    {note}" for note in self.notes)
         return "\n".join(lines)
 
 
@@ -113,18 +118,23 @@ class AssertExtension(Extension):
         ref_names = nodes.List([nodes.Const(n) for n in refs], lineno=lineno)
         ref_values = nodes.List(list(refs.values()), lineno=lineno)
 
+        test_nodes = [condition] if isinstance(condition, nodes.Test) else []
+        test_nodes += condition.find_all(nodes.Test)   # descendants only
+        tests = nodes.Const(sorted({t.name for t in test_nodes}))
         call = self.call_method(
             "_check",
             [condition, message, nodes.Const(lineno), nodes.Const(parser.filename),
-             ref_names, ref_values],
+             ref_names, ref_values, tests],
             lineno=lineno,
         )
         return nodes.CallBlock(call, [], [], []).set_lineno(lineno)
 
-    def _check(self, condition, message, lineno, template, ref_names, ref_values, caller):
+    def _check(self, condition, message, lineno, template, ref_names, ref_values, tests, caller):
         if not condition:
             msg = message if message is not None else "condition is false"
-            error = FactAssertionError(str(msg), lineno, dict(zip(ref_names, ref_values)), template)
+            claims = getattr(self.environment, "claims", {})
+            notes = [f"{t}: {describe(claims[t])} ([claims] in paper.toml)" for t in tests if t in claims]
+            error = FactAssertionError(str(msg), lineno, dict(zip(ref_names, ref_values)), template, notes)
             failures = getattr(self.environment, "_assert_failures", None)
             if failures is None:
                 raise error

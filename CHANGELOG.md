@@ -9,6 +9,7 @@ All notable changes to vibepaper are documented here.
 - **`vibepaper --version`** (also `-V`, and `python -m vibepaper`) prints the installed version ([#19](https://github.com/SACGF/vibepaper/issues/19)).
 - **`vibepaper check`** evaluates every `{% assert %}` against the facts that exist, without a build ([#21](https://github.com/SACGF/vibepaper/issues/21)). Each is reported as PASS, FAIL (with the fact values it reads), MISSING (its facts file or field isn't there yet) or ERROR. `--check` exits 1 on FAIL or ERROR only, so CI with partial facts still catches broken claims.
 - **`vibepaper diff --against <git ref>` and `--against-dir <dir>`** ([#15](https://github.com/SACGF/vibepaper/issues/15)) compare the facts with those committed at a ref, or in another facts directory, instead of the last build. Each fact the paper uses is listed with its before and after values as the paper renders them, the change and where it's used. Facts that changed only below display precision are listed apart as "renders the same". `--format md` gives a table for a re-run PR, and `diff` now also takes `--facts-dir`.
+- **Judgement-word tolerances, defined once** ([#24](https://github.com/SACGF/vibepaper/issues/24)). A `[claims]` table in `paper.toml` (e.g. `close_to = { within_pct = 10 }`, `comparable_to = { factor = 2 }`, `near_zero = { within = 0.5 }`) turns each word into a Jinja test: `{% assert x is close_to(95), "..." %}`. A failed claim prints the tolerance it was held to. An unknown test name gets a hint pointing at `[claims]`, and invalid entries are rejected when `paper.toml` is loaded.
 - **`vibepaper lint` notes facts CSVs with inconsistent line endings** ([#20](https://github.com/SACGF/vibepaper/issues/20)): a file that mixes CRLF and LF, or a file whose endings differ from most of the facts directory. `csv.writer` defaults to CRLF, so one script's output then diffs on every line. The README now recommends `lineterminator="\n"`. This is a note and does not fail `--check`.
 
 ### Changed
@@ -16,6 +17,8 @@ All notable changes to vibepaper are documented here.
 - **A build reports every failed `{% assert %}` at once, without a traceback** ([#18](https://github.com/SACGF/vibepaper/issues/18)). It used to stop at the first one, after a Python traceback. Now every section is rendered, and each failure is listed with its file:line, message and fact values before the build exits 1. An assert in an `{% include %}`d file is reported with that file's name. Other template errors (an undefined fact, a word filter that no longer fits) also print without a traceback, from `build` and `diff`.
 
 - **`vibepaper diff` shows a word diff of each changed paragraph** ([#16](https://github.com/SACGF/vibepaper/issues/16)). Edits are marked `[-old-]{+new+}`, with eight words of context either side and nothing truncated (it used to show the first 200 characters of OLD and NEW). A changed table lists its changed rows. Each change gives its line number. Paragraphs that were only re-wrapped are no longer reported, by `diff` or by `sync`.
+
+- Invalid `paper.toml` settings and template syntax errors now print as `error: ...` with the file and line, not a traceback.
 
 ### Fixed
 

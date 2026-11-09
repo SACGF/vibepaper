@@ -30,8 +30,13 @@ from .render import (
     sanity_check,
 )
 from .tables import process_file as render_tables
+from .tolerances import claim_tests
 
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+
+class ConfigError(ValueError):
+    """paper.toml is invalid. The message is complete; the CLI prints it as is."""
 
 
 def load_config(config_path: Path) -> dict:
@@ -46,6 +51,7 @@ def load_config(config_path: Path) -> dict:
       paper.build_dir       = "build"
       paper.reference_doc   = "paper/reference.docx"  (only used if file exists)
       paper.spell_out_up_to = 10  (word filters spell out integers up to this)
+      claims                = {}  (judgement-word tolerances, e.g. close_to)
     """
     with open(config_path, "rb") as fh:
         raw = tomllib.load(fh)
@@ -53,7 +59,11 @@ def load_config(config_path: Path) -> dict:
     paper = raw.get("paper", {})
 
     if "sections" not in paper:
-        raise ValueError(f"{config_path}: [paper] must contain a 'sections' list")
+        raise ConfigError(f"{config_path}: [paper] must contain a 'sections' list")
+    try:
+        claim_tests(raw.get("claims"))
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from None
 
     return {
         "sections":      paper["sections"],
@@ -66,6 +76,7 @@ def load_config(config_path: Path) -> dict:
         "bibliography":  paper.get("bibliography", None),
         "csl":           paper.get("csl", None),
         "spell_out_up_to": int(paper.get("spell_out_up_to", DEFAULT_SPELL_OUT_UP_TO)),
+        "claims":        dict(raw.get("claims", {})),
     }
 
 
@@ -82,6 +93,7 @@ def minimal_config(sections: list[str], name: str | None = None) -> dict:
         "bibliography":  None,
         "csl":           None,
         "spell_out_up_to": DEFAULT_SPELL_OUT_UP_TO,
+        "claims":        {},
     }
 
 
@@ -421,6 +433,7 @@ def run_build(
         project_root,
         extra_search_paths=[facts_dir] if facts_dir.exists() else None,
         spell_out_up_to=config.get("spell_out_up_to", DEFAULT_SPELL_OUT_UP_TO),
+        claims=config.get("claims"),
     )
 
     jinja_warnings = []

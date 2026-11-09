@@ -280,6 +280,35 @@ paper/discussion.md:31: assertion failed: 'every transcript resolves'
 
 Comparisons inside an assert do not break "no arithmetic in templates", because nothing computed is printed. Name the sentence the assert protects in its message.
 
+### Judgement words: one tolerance per word
+
+"Close to nominal", "essentially unchanged" and "comparable to" need a tolerance. If each assert picks its own, the same word ends up meaning 5% in one place and 2x in another, and nothing records why. Define each word once in `paper.toml`:
+
+```toml
+[claims]
+close_to = { within_pct = 10 }          # |a - b| <= 10% of b
+essentially_unchanged = { within_pct = 5 }
+comparable_to = { factor = 2 }          # a/b and b/a both <= 2
+near_zero = { within = 0.5 }            # |a - b| <= 0.5
+```
+
+Each name becomes a test to use in an assert:
+
+```jinja
+{% assert depth.ci_coverage_pct is close_to(95), "'cover close to nominal' 95%" %}
+{% assert run.new_tps is essentially_unchanged(run.old_tps), "'essentially unchanged'" %}
+```
+
+A failed claim names its tolerance, so a reviewer can see what the word was held to:
+
+```
+paper/discussion.md:67: assertion failed: 'cover close to nominal' 95%
+    depth.ci_coverage_pct = 100.0
+    close_to: within 10% of the reference ([claims] in paper.toml)
+```
+
+Names must be identifiers (`close_to`, not `"close to"`). The tolerance types are `within_pct` (relative to the second value), `within` (absolute) and `factor`.
+
 ### `vibepaper lint`: find the wording nothing checks
 
 ```bash
@@ -597,6 +626,11 @@ csl = "paper/vancouver.csl"
 # up to this value ("three" rather than "3"). 0 disables.
 # Default: 10
 spell_out_up_to = 10
+
+[claims]
+# Judgement-word tolerances, used as {% assert x is close_to(95) %}.
+# Kinds: within_pct (relative), within (absolute), factor. Default: none.
+close_to = { within_pct = 10 }
 ```
 
 ### Word reference document

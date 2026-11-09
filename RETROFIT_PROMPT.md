@@ -61,6 +61,20 @@ Then choose one:
 
   If a totality claim needs a count the script does not emit (e.g. the number of exceptions), add it to the facts.
 
+  For a judgement word ("close to", "essentially unchanged", "comparable to"), don't choose a tolerance on the spot. Define it once under `[claims]` in `paper.toml` and use it as a test, so the same word means the same thing everywhere:
+
+  ```toml
+  [claims]
+  close_to = { within_pct = 10 }
+  essentially_unchanged = { within_pct = 5 }
+  comparable_to = { factor = 2 }
+  ```
+  ```jinja
+  {% assert depth.ci_coverage_pct is close_to(95), "'cover close to nominal' 95%" %}
+  ```
+
+  Choose each tolerance from what the claim can bear (sample size, measurement noise), and add a TOML comment saying why.
+
 - **(c) lint-ok.** Use it for true hedges and interpretive words ("just", "only", "striking", "a small improvement"). Add `{# lint-ok: reason #}` to the paragraph (on its own line or at the end of one), and keep the reason short and specific.
 
 Rules:

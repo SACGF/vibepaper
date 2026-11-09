@@ -18,12 +18,14 @@ from jinja2 import (
     FileSystemLoader,
     StrictUndefined,
     TemplateNotFound,
+    TemplateSyntaxError,
     UndefinedError,
 )
 
 from jinja2.ext import Extension
 
 from .assertions import AssertExtension, FactAssertionError, collect_failures
+from .tolerances import claim_tests
 from .words import DEFAULT_SPELL_OUT_UP_TO, FILTERS as WORD_FILTERS
 
 log = logging.getLogger(__name__)
@@ -142,6 +144,7 @@ def make_jinja_env(
     project_root: Path,
     extra_search_paths: list[Path] | None = None,
     spell_out_up_to: int = DEFAULT_SPELL_OUT_UP_TO,
+    claims: dict | None = None,
 ) -> Environment:
     """Create a Jinja2 environment with custom filters and strict undefined.
 
@@ -156,7 +159,9 @@ def make_jinja_env(
 
     Also registers the word filters (``approx``, ``orders_of_magnitude``, ...)
     and the ``{% assert %}`` tag (issue #9). ``spell_out_up_to`` is the largest
-    integer that word filters spell out ("three" rather than "3").
+    integer that word filters spell out ("three" rather than "3"). ``claims``
+    is the ``[claims]`` table of ``paper.toml``: each entry becomes a Jinja test
+    such as ``{% assert x is close_to(95) %}`` (issue #24).
     """
     extra = list(extra_search_paths or [])
     trusted_roots = [project_root, *extra]
@@ -214,6 +219,9 @@ def make_jinja_env(
             fn = functools.partial(fn, spell_out_up_to=spell_out_up_to)
         env.filters[name] = fn
 
+    env.tests.update(claim_tests(claims))
+    env.claims = dict(claims or {})
+
     return env
 
 
@@ -234,6 +242,14 @@ def render_file(
             rendered = env.from_string(content).render(**context)
     except UndefinedError as exc:
         raise TemplateRenderError(f"Template error in {input_path}: {exc}") from exc
+    except TemplateSyntaxError as exc:
+        hint = ""
+        if "No test named" in str(exc):
+            hint = (
+                "\nJudgement-word tests such as close_to are defined per paper, under "
+                "[claims] in paper.toml, e.g.\n    [claims]\n    close_to = { within_pct = 10 }"
+            )
+        raise TemplateRenderError(f"{input_path}:{exc.lineno}: {exc.message}{hint}") from exc
     except ValueError as exc:
         # Word filters raise ValueError when the claim no longer fits the fact
         # (e.g. within_pct above 50%).

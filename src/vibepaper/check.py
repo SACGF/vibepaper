@@ -80,7 +80,8 @@ def check_text(text: str, filename: str, env, context: dict) -> list[AssertResul
         try:
             env.from_string(tag).render(**context)
         except FactAssertionError as exc:
-            results.append(AssertResult(filename, line, "FAIL", message, exc.values))
+            results.append(AssertResult(filename, line, "FAIL", message, exc.values,
+                                        "; ".join(exc.notes)))
         except UndefinedError as exc:
             results.append(AssertResult(filename, line, "MISSING", message, detail=str(exc)))
         except Exception as exc:
