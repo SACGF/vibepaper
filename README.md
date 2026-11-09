@@ -304,6 +304,22 @@ Lint also lists facts CSVs whose line endings (CRLF or LF) differ from the rest 
 
 For a word that really is a hedge or a judgement ("just", "only", "striking"), accept it by adding `{# lint-ok: reason #}` anywhere in the paragraph. It can go on a line of its own: like an assert, it leaves no blank line in the output. It accepts the claim words only: a fact that rounds to 100.0 or 0.0 beside "every" or "none" is still flagged.
 
+### `vibepaper check`: run the asserts without a build
+
+A build needs every facts CSV. When some analysis rules are slow or still running, `vibepaper check` evaluates each `{% assert %}` against the facts that exist, without rendering the paper:
+
+```
+PASS     paper/results.md:35: 'On RefSeq the two backends are at parity'
+FAIL     paper/results.md:341: Table 1 caption: '<=0.5% on the same mixtures'
+             subsample_lod_headline.mle_lod_pct = 1.0
+             subsample_lod_headline.min_titration_pct = 0.5
+MISSING  paper/discussion.md:67: 'cover close to nominal' (needs facts: depth_summary.csv)
+
+3 assert(s): 1 pass, 1 fail, 1 missing.
+```
+
+MISSING means the assert reads a facts file or field that isn't there yet. `vibepaper check --check` exits 1 on FAIL or ERROR but not on MISSING, so CI with partial facts still catches broken claims. Asserts inside `{% include %}`d files are not checked.
+
 ### `vibepaper diff`: what changed, and which words to re-read
 
 `vibepaper build` caches the facts it used (`build/.last_facts.json`) alongside the rendered Markdown. After you refresh the CSVs, `vibepaper diff` reports which facts changed, by name and by how much, and where the paper uses them. It then lists the unchecked sentences that use a changed fact, and finally the changed paragraphs:

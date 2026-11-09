@@ -145,6 +145,38 @@ def main():
         help="Exit 1 if anything is flagged (for CI).",
     )
 
+    # -- check --------------------------------------------------------------
+    check_parser = subparsers.add_parser(
+        "check",
+        help="Evaluate every {% assert %} against the facts that exist, without a build.",
+        description=(
+            "Evaluate every {% assert %} in the sections against the facts that\n"
+            "exist now, without rendering the paper. Each is reported as PASS,\n"
+            "FAIL (with the fact values it reads), MISSING (its facts file or\n"
+            "field isn't there yet) or ERROR. Useful while slow analysis rules\n"
+            "are still running, and in CI with partial facts.\n\n"
+            "Asserts in {% include %}d files are not checked.\n\n"
+            "Checks the sections in paper.toml, or the FILE.md arguments."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    check_parser.add_argument(
+        "files", nargs="*", type=Path, metavar="FILE.md",
+        help="Markdown files to check (default: sections in paper.toml).",
+    )
+    check_parser.add_argument(
+        "--config", default="paper.toml", metavar="FILE",
+        help="paper.toml config file (default: paper.toml in cwd).",
+    )
+    check_parser.add_argument(
+        "--facts-dir", metavar="DIR",
+        help="Facts directory (overrides paper.toml).",
+    )
+    check_parser.add_argument(
+        "--check", action="store_true",
+        help="Exit 1 if any assert is FAIL or ERROR (MISSING does not fail).",
+    )
+
     # -- sync ---------------------------------------------------------------
     sync_parser = subparsers.add_parser(
         "sync",
@@ -179,7 +211,7 @@ def main():
     # -- Parse --------------------------------------------------------------
     # If the first arg doesn't look like a subcommand, treat it as a build.
     # This keeps `vibepaper paper.toml` and `vibepaper intro.md` working.
-    known_commands = {"build", "fetch-csl", "wrap", "diff", "lint", "sync",
+    known_commands = {"build", "fetch-csl", "wrap", "diff", "lint", "check", "sync",
                       "-h", "--help", "-V", "--version"}
     if len(sys.argv) > 1 and sys.argv[1] not in known_commands:
         args = build_parser.parse_args(sys.argv[1:])
@@ -201,6 +233,8 @@ def main():
         _run_diff(args)
     elif args.command == "lint":
         _run_lint(args)
+    elif args.command == "check":
+        _run_check(args)
     elif args.command == "sync":
         _run_sync(args)
 
@@ -495,9 +529,10 @@ def _run_diff(args):
 # lint
 # ---------------------------------------------------------------------------
 
-def _run_lint(args):
-    from .lint import format_findings, line_ending_issues, lint_files
-
+def _section_inputs(args):
+    """(config, project_root, section paths, facts_dir) for lint and check:
+    the FILE.md arguments or paper.toml's sections, and --facts-dir or
+    paper.toml's facts_dir."""
     config_path = Path(args.config).resolve()
     if config_path.exists():
         config = load_config(config_path)
@@ -523,6 +558,13 @@ def _run_lint(args):
     facts_dir = Path(args.facts_dir) if args.facts_dir else Path(config["facts_dir"])
     if not facts_dir.is_absolute():
         facts_dir = (Path.cwd() if args.facts_dir else project_root) / facts_dir
+    return config, project_root, paths, facts_dir
+
+
+def _run_lint(args):
+    from .lint import format_findings, line_ending_issues, lint_files
+
+    config, project_root, paths, facts_dir = _section_inputs(args)
     env = context = None
     if facts_dir.exists():
         context = _facts_context(facts_dir)
@@ -540,6 +582,25 @@ def _run_lint(args):
             )
             print("\n".join("  " + e for e in endings))
     if args.check and findings:
+        sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# check
+# ---------------------------------------------------------------------------
+
+def _run_check(args):
+    from .check import check_files, format_results
+
+    config, project_root, paths, facts_dir = _section_inputs(args)
+    if not facts_dir.exists():
+        print(f"warning: facts directory {facts_dir} not found; every assert will be MISSING.",
+              file=sys.stderr)
+    context = _facts_context(facts_dir)
+    env = _paper_env(project_root, config, facts_dir)
+    results = check_files(paths, project_root, env, context)
+    print(format_results(results))
+    if args.check and any(r.status in ("FAIL", "ERROR") for r in results):
         sys.exit(1)
 
 

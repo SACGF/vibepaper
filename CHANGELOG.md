@@ -7,6 +7,7 @@ All notable changes to vibepaper are documented here.
 ### Added
 
 - **`vibepaper --version`** (also `-V`, and `python -m vibepaper`) prints the installed version ([#19](https://github.com/SACGF/vibepaper/issues/19)).
+- **`vibepaper check`** evaluates every `{% assert %}` against the facts that exist, without a build ([#21](https://github.com/SACGF/vibepaper/issues/21)). Each is reported as PASS, FAIL (with the fact values it reads), MISSING (its facts file or field isn't there yet) or ERROR. `--check` exits 1 on FAIL or ERROR only, so CI with partial facts still catches broken claims.
 - **`vibepaper lint` notes facts CSVs with inconsistent line endings** ([#20](https://github.com/SACGF/vibepaper/issues/20)): a file that mixes CRLF and LF, or a file whose endings differ from most of the facts directory. `csv.writer` defaults to CRLF, so one script's output then diffs on every line. The README now recommends `lineterminator="\n"`. This is a note and does not fail `--check`.
 
 ### Changed
