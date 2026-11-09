@@ -595,6 +595,7 @@ def _run_diff(args):
         report = format_fact_changes(fact_changes)
         if report:
             print(report)
+        _print_provenance_changes(old_facts, flatten_facts(context))
         if fact_changes:
             paths = [project_root / s for s in all_sections]
             stale = format_stale_wording(lint_files(paths, project_root), fact_changes)
@@ -604,6 +605,15 @@ def _run_diff(args):
     new_text = concatenate_sections(build_paper, all_sections)
     changes = diff_paragraphs(old_text, new_text)
     print(format_diff(changes))
+
+
+def _print_provenance_changes(old_flat: dict, new_flat: dict):
+    from .provenance import provenance_changes
+
+    changes = provenance_changes(old_flat, new_flat)
+    if changes:
+        print(f"Provenance changed for {len(changes)} facts file(s):")
+        print("\n".join("  " + c for c in changes) + "\n")
 
 
 def _diff_against(args, config, project_root, facts_dir, all_sections):
@@ -634,6 +644,7 @@ def _diff_against(args, config, project_root, facts_dir, all_sections):
     sources = _source_texts(project_root, all_sections)
     changed, same, unreferenced = compare_facts(old_context, new_context, sources, env)
     print(format_compare(changed, same, unreferenced, label, args.format))
+    _print_provenance_changes(flatten_facts(old_context), flatten_facts(new_context))
     if args.format == "text" and changed:
         fact_changes = [c for c in diff_facts(flatten_facts(old_context), flatten_facts(new_context))
                         if c.name in {r.name for r in changed}]

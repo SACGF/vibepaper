@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .claims import TOTALITY_WORDS, claim_words
+from .provenance import mixed_versions
 from .words import WORD_FILTER_NAMES
 
 _EXPR_RE = re.compile(r"\{\{(.*?)\}\}", re.DOTALL)
@@ -36,7 +37,7 @@ _FACT = "\x00{}\x00"
 class Finding:
     file: str
     line: int
-    kind: str                 # "unchecked" or "rounding"
+    kind: str                 # "unchecked", "rounding" or "provenance"
     sentence: str
     words: list[str] = field(default_factory=list)
     detail: str = ""
@@ -45,7 +46,7 @@ class Finding:
         text = " ".join(self.sentence.split())
         if len(text) > 160:
             text = text[:157] + "..."
-        if self.kind == "rounding":
+        if self.kind in ("rounding", "provenance"):
             return f"{self.file}:{self.line}: {self.detail}\n    \"{text}\""
         return f"{self.file}:{self.line}: {', '.join(self.words)}\n    \"{text}\""
 
@@ -142,6 +143,28 @@ def _rounding_issue(expr: str, env, context: dict) -> str | None:
     )
 
 
+def provenance_findings(text: str, filename: str, context: dict) -> list[Finding]:
+    """Paragraphs and tables that use facts from files produced by different
+    versions of the same tool, per their provenance sidecars (issue #13).
+    ``{# lint-ok #}`` accepts a paragraph that compares versions on purpose."""
+    text = _blank_out(_blank_out(text, _RAW_RE), _HTML_COMMENT_RE)
+    findings = []
+    for start, para in _paragraphs(text):
+        if "{{" not in para or _LINT_OK_RE.search(para):
+            continue
+        namespaces = {
+            ns for expr in _EXPR_RE.findall(para)
+            for ns in re.findall(r"(?<![\w.])([A-Za-z_]\w*)\s*[.\[]", expr)
+            if isinstance(context.get(ns), dict)
+        }
+        mixed = mixed_versions(namespaces, context)
+        if mixed:
+            first = next(l for l in para.splitlines() if l.strip())
+            findings.append(Finding(filename, start, "provenance", first,
+                                    detail="mixes tool versions: " + "; ".join(mixed)))
+    return findings
+
+
 def lint_files(paths: list[Path], project_root: Path, env=None, context=None) -> list[Finding]:
     findings: list[Finding] = []
     for path in paths:
@@ -151,7 +174,10 @@ def lint_files(paths: list[Path], project_root: Path, env=None, context=None) ->
             name = str(path.relative_to(project_root))
         except ValueError:
             name = str(path)
-        findings.extend(lint_text(path.read_text(), name, env, context))
+        text = path.read_text()
+        findings.extend(lint_text(text, name, env, context))
+        if context is not None:
+            findings.extend(provenance_findings(text, name, context))
     return findings
 
 
@@ -204,6 +230,9 @@ def format_findings(findings: list[Finding]) -> str:
         )
     if rounding:
         summary.append(f"{len(rounding)} fact(s) round to 100/0 beside a totality word")
+    mixed = [f for f in findings if f.kind == "provenance"]
+    if mixed:
+        summary.append(f"{len(mixed)} paragraph(s) mix facts from different tool versions")
     out.append("")
     out.append("; ".join(summary) + f" ({files} file(s)).")
     out.append(

@@ -30,14 +30,11 @@ from .render import (
     sanity_check,
 )
 from .tables import process_file as render_tables
+from .errors import ConfigError
 from .frozen import apply_frozen
 from .tolerances import claim_tests
 
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-
-
-class ConfigError(ValueError):
-    """paper.toml is invalid. The message is complete; the CLI prints it as is."""
 
 
 def load_config(config_path: Path) -> dict:

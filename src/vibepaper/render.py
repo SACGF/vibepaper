@@ -25,6 +25,7 @@ from jinja2 import (
 from jinja2.ext import Extension
 
 from .assertions import AssertExtension, FactAssertionError, collect_failures
+from .provenance import KEY as PROVENANCE_KEY, read_provenance
 from .tolerances import claim_tests
 from .words import DEFAULT_SPELL_OUT_UP_TO, FILTERS as WORD_FILTERS
 
@@ -63,6 +64,8 @@ def load_facts(facts_dir: Path) -> dict:
     - **Horizontal** (legacy): column names as header, single data row.
 
     Each file 'foo_bar.csv' becomes context['foo_bar'] = {field: value, ...}.
+    An optional 'foo_bar.provenance.json' sidecar is added as
+    context['foo_bar']['_prov'] (issue #13).
     """
     context = {}
     for csv_path in sorted(facts_dir.glob("*.csv")):
@@ -81,6 +84,9 @@ def load_facts(facts_dir: Path) -> dict:
             log.debug("Skipping %s (multi-row, not a facts CSV)", csv_path.name)
             continue
         namespace = csv_path.stem
+        prov = read_provenance(csv_path)
+        if prov is not None:
+            context[namespace][PROVENANCE_KEY] = prov
         log.debug("Loaded facts: %s (%d fields)", namespace, len(context[namespace]))
     return context
 

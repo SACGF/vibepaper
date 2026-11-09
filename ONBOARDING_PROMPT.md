@@ -94,6 +94,13 @@ Rules:
 
 Call `write_facts()` at the end of each script's `main()` so the CSVs are always fresh alongside the analysis outputs.
 
+If the results depend on a tool or data version the paper names (in methods, captions), write a provenance sidecar beside the CSV and use `{{ results._prov.tools.<tool> }}` in the prose instead of typing the version:
+
+```python
+from vibepaper.provenance import write_provenance
+write_provenance(facts_dir / "results.csv", tools=["cdot"])   # installed version, today's date, this command
+```
+
 ### Step 4 — Install vibepaper
 
 ```bash

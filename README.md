@@ -331,7 +331,7 @@ The second kind of finding needs facts, and is reported even in covered paragrap
 
 Lint also lists facts CSVs whose line endings (CRLF or LF) differ from the rest of the facts directory. This is a note only and does not make `--check` fail.
 
-For a word that really is a hedge or a judgement ("just", "only", "striking"), accept it by adding `{# lint-ok: reason #}` anywhere in the paragraph. It can go on a line of its own: like an assert, it leaves no blank line in the output. It accepts the claim words only: a fact that rounds to 100.0 or 0.0 beside "every" or "none" is still flagged.
+For a word that really is a hedge or a judgement ("just", "only", "striking"), accept it by adding `{# lint-ok: reason #}` anywhere in the paragraph. It can go on a line of its own: like an assert, it leaves no blank line in the output. It accepts the claim words (and a deliberate mix of tool versions, see [provenance](#provenance-which-versions-produced-a-facts-file)) only: a fact that rounds to 100.0 or 0.0 beside "every" or "none" is still flagged.
 
 ### `vibepaper check`: run the asserts without a build
 
@@ -445,6 +445,29 @@ benchmark.uta_remote_tps,0.13,"public UTA REST, measured 2025-06; not re-run"
 ```
 
 `build`, `diff`, `lint` and `check` apply this file on top of the facts CSVs, so a frozen value survives re-runs and never shows up in `vibepaper diff`. The build prints how many frozen facts it used. To update a frozen value from the current CSVs, run `freeze` again; to drop one, run `vibepaper freeze --remove benchmark.uta_remote_n`. You can also edit the file by hand. Set `frozen_facts` in `[paper]` to use another path.
+
+### Provenance: which versions produced a facts file
+
+A facts CSV can have a sidecar, `foo.provenance.json`, recording when and with what it was produced:
+
+```json
+{"date": "2026-10-30", "command": "snakemake benchmark", "tools": {"cdot": "0.2.37", "cdot_data": "0.2.36"}}
+```
+
+It's loaded as `foo._prov`, so version strings in captions and methods come from the facts:
+
+```markdown
+Table 1. Throughput with cdot {{ benchmark._prov.tools.cdot }} (data release {{ benchmark._prov.tools.cdot_data }}), measured {{ benchmark._prov.date }}.
+```
+
+Producer scripts can write it with a helper. A list of tool names looks up the installed versions; `command` and `date` default to how the script was run and today:
+
+```python
+from vibepaper.provenance import write_provenance
+write_provenance("output/facts/benchmark.csv", tools=["cdot"], cdot_data="0.2.36")
+```
+
+`vibepaper lint` flags a paragraph or table that uses facts from files whose `tools` give different versions of the same tool, which typically happens after a partial re-run. `{# lint-ok: reason #}` accepts a paragraph that compares versions on purpose. `vibepaper diff` (including `--against`) lists provenance changes separately from fact changes.
 
 ### The `facts_dir` variable
 

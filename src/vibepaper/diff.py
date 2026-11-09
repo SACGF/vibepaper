@@ -228,9 +228,14 @@ class FactChange:
 
 
 def diff_facts(old: dict, new: dict) -> list[FactChange]:
-    """Facts whose value differs between two flattened fact dicts."""
+    """Facts whose value differs between two flattened fact dicts.
+
+    Provenance entries (``ns._prov.*``) are left out; see
+    :func:`vibepaper.provenance.provenance_changes`."""
     changes = []
     for name in sorted(set(old) | set(new)):
+        if "._prov." in name:
+            continue
         a, b = old.get(name), new.get(name)
         if a != b:
             changes.append(FactChange(name, a, b, []))
@@ -374,7 +379,8 @@ _EXPR_RE = re.compile(r"\{\{(.*?)\}\}", re.DOTALL)
 
 
 def facts_at_ref(facts_dir: Path, ref: str, dest: Path) -> Path:
-    """Write the facts CSVs as committed at git ``ref`` into ``dest``.
+    """Write the facts CSVs (and provenance sidecars) as committed at git
+    ``ref`` into ``dest``.
 
     Raises ``ValueError`` if ``facts_dir`` isn't in a git repository or the
     ref doesn't exist.
@@ -397,7 +403,7 @@ def facts_at_ref(facts_dir: Path, ref: str, dest: Path) -> Path:
     listing = git("ls-tree", "--name-only", ref, f"{rel.as_posix()}/", text=True)
     dest.mkdir(parents=True, exist_ok=True)
     for name in listing.stdout.split():
-        if name.endswith(".csv"):
+        if name.endswith((".csv", ".provenance.json")):
             blob = git("show", f"{ref}:{name}")
             (dest / Path(name).name).write_bytes(blob.stdout)
     return dest
