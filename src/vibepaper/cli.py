@@ -162,6 +162,12 @@ def main():
         help="Facts directory for the rounding check (overrides paper.toml).",
     )
     lint_parser.add_argument(
+        "--numbers", action="store_true",
+        help="Also flag result-like numbers (decimals, 12%%, 0.3 pp, 4-fold, 100x) typed "
+             "into paragraphs that use facts. Accept design values with [lint] "
+             "allowed_numbers in paper.toml or {# lint-ok #}.",
+    )
+    lint_parser.add_argument(
         "--unused", action="store_true",
         help="Also list facts the paper never references (skip some with [lint] unused_ok "
              "in paper.toml).",
@@ -705,7 +711,8 @@ def _run_lint(args):
         context = _facts_context(facts_dir, config, project_root)
         env = _paper_env(project_root, config, facts_dir)
 
-    findings = lint_files(paths, project_root, env, context)
+    findings = lint_files(paths, project_root, env, context, numbers=args.numbers,
+                          allowed_numbers=config.get("lint_allowed_numbers", []))
     print(format_findings(findings))
     if facts_dir.exists():
         endings = line_ending_issues(facts_dir, project_root)
