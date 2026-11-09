@@ -15,6 +15,15 @@ def test_true_assert_renders_nothing_and_keeps_paragraph_whole(render):
     assert render(t, r={"a": 5, "b": 3}) == "Before.\n\nDominated by 5 then 3.\n"
 
 
+def test_whole_line_comment_keeps_paragraph_whole_and_line_numbers(render):
+    # Issue #23: a {# lint-ok #} line inside a paragraph used to leave a blank
+    # line, splitting it in two. Line numbers after it must not shift.
+    assert render("One.\n  {# lint-ok: hedge #}  \nTwo.\n") == "One.\nTwo.\n"
+    assert render("One.\n{# keep -#}\n\nTwo.\n") == "One.\nTwo.\n"
+    with pytest.raises(FactAssertionError, match="line 4"):
+        render("a\n{# multi\nline #}\n{% assert false, 'x' %}\n")
+
+
 def test_assert_inline_and_without_message(render):
     assert render("x {% assert 1 < 2 %} y") == "x  y"
 

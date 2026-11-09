@@ -297,7 +297,7 @@ paper/results.md:11: {{ bench.matched_pct | dp(1) }} renders '100.0' but the val
 
 The second kind of finding needs facts, and is reported even in covered paragraphs: a value that only *rounds* to 100.0 or 0.0 next to "every" or "none".
 
-For a word that really is a hedge or a judgement ("just", "only", "striking"), accept it by adding `{# lint-ok: reason #}` anywhere in the paragraph. Put the comment at the end of a line rather than on a line of its own, so it does not leave a blank line in the output.
+For a word that really is a hedge or a judgement ("just", "only", "striking"), accept it by adding `{# lint-ok: reason #}` anywhere in the paragraph. It can go on a line of its own: like an assert, it leaves no blank line in the output.
 
 ### `vibepaper diff`: what changed, and which words to re-read
 

@@ -8,6 +8,10 @@ All notable changes to vibepaper are documented here.
 
 - **`vibepaper --version`** (also `-V`, and `python -m vibepaper`) prints the installed version ([#19](https://github.com/SACGF/vibepaper/issues/19)).
 
+### Fixed
+
+- **A `{# comment #}` on its own line no longer splits the paragraph** ([#23](https://github.com/SACGF/vibepaper/issues/23)). Like `{% assert %}`, a comment that fills its line(s) now renders as nothing, newline included, so `{# lint-ok: reason #}` can sit on its own line inside or above a paragraph. A comment between blank lines still leaves the paragraphs on either side apart. `{# ... -#}` keeps its own whitespace control.
+
 ## [0.9.0] — 2026-11-05
 
 ### Added

@@ -60,7 +60,7 @@ Then choose one:
 
   If a totality claim needs a count the script does not emit (e.g. the number of exceptions), add it to the facts.
 
-- **(c) lint-ok.** Use it for true hedges and interpretive words ("just", "only", "striking", "a small improvement"). Add `{# lint-ok: reason #}` at the end of a line in the paragraph, and keep the reason short and specific.
+- **(c) lint-ok.** Use it for true hedges and interpretive words ("just", "only", "striking", "a small improvement"). Add `{# lint-ok: reason #}` to the paragraph (on its own line or at the end of one), and keep the reason short and specific.
 
 Rules:
 - Never keep a magnitude or direction word as a literal beside a fact.

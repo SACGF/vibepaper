@@ -189,7 +189,7 @@ It lists every sentence that has a `{{ fact }}` beside a claim word (rises, fall
   ```
   {% assert residual.indel_count > residual.multi_locus_count, "'dominated by indel then paralog' order" %}
   ```
-- **(c) Leave it and say why.** For true hedges and interpretive words ("just", "only", "striking"), add `{# lint-ok: reason #}` at the end of a line in the paragraph.
+- **(c) Leave it and say why.** For true hedges and interpretive words ("just", "only", "striking"), add `{# lint-ok: reason #}` to the paragraph (on its own line or at the end of one).
 
 Rules:
 - Never keep a magnitude or direction word as a literal beside a fact.

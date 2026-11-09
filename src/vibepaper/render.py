@@ -21,6 +21,8 @@ from jinja2 import (
     UndefinedError,
 )
 
+from jinja2.ext import Extension
+
 from .assertions import AssertExtension, FactAssertionError
 from .words import DEFAULT_SPELL_OUT_UP_TO, FILTERS as WORD_FILTERS
 
@@ -97,6 +99,30 @@ class _TrustedAbsoluteLoader(BaseLoader):
         return source, str(path), lambda: path.exists() and path.stat().st_mtime == mtime
 
 
+_RAW_BLOCK_RE = re.compile(r"\{%-?\s*raw\s*-?%\}.*?\{%-?\s*endraw\s*-?%\}", re.DOTALL)
+_WHOLE_LINE_COMMENT_RE = re.compile(r"^[ \t]*(\{#(?:(?!#\}).)*?)(?<!-)#\}[ \t]*\n", re.DOTALL | re.MULTILINE)
+
+
+class WholeLineCommentExtension(Extension):
+    """A ``{# comment #}`` that fills its own line(s) renders as nothing, newline
+    included, the way ``{% assert %}`` does. Otherwise ``{# lint-ok: ... #}``
+    on its own line inside a paragraph leaves an empty line that splits the
+    paragraph in two. See issue #23.
+
+    The newline is moved inside the comment rather than deleted, so line
+    numbers in later error messages don't shift.
+    """
+
+    def preprocess(self, source, name, filename=None):
+        out, pos = [], 0
+        for m in _RAW_BLOCK_RE.finditer(source):
+            out.append(_WHOLE_LINE_COMMENT_RE.sub(r"\1\n#}", source[pos:m.start()]))
+            out.append(m.group(0))
+            pos = m.end()
+        out.append(_WHOLE_LINE_COMMENT_RE.sub(r"\1\n#}", source[pos:]))
+        return "".join(out)
+
+
 def make_jinja_env(
     project_root: Path,
     extra_search_paths: list[Path] | None = None,
@@ -129,7 +155,7 @@ def make_jinja_env(
         loader=loader,
         undefined=StrictUndefined,
         keep_trailing_newline=True,
-        extensions=[AssertExtension],
+        extensions=[AssertExtension, WholeLineCommentExtension],
     )
 
     def filter_commas(value) -> str:
