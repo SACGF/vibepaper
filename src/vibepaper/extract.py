@@ -255,9 +255,15 @@ def _remove_tags(text: str, tags: list[_Tag]) -> str:
         line_end = len(text) if line_end < 0 else line_end
         if not text[line_start:s].strip() and not text[e:line_end].strip():
             text = text[:line_start] + text[min(line_end + 1, len(text)):]
-        elif t.kind == "assert" and text.startswith("\n", e):
-            text = text[:s] + text[e + 1:]
         else:
+            # Jinja whitespace control: "{#-" / "{%-" also removed the
+            # whitespace before the tag, "-#}" / "-%}" the whitespace after.
+            if t.text[2:3] == "-":
+                s = len(text[:s].rstrip())
+            if t.text[-3:-2] == "-":
+                e = len(text) - len(text[e:].lstrip())
+            elif t.kind == "assert" and text.startswith("\n", e):
+                e += 1
             text = text[:s] + text[e:]
     return text
 

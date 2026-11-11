@@ -290,3 +290,13 @@ def test_extract_multiline_lint_ok_and_exact_render(tmp_path):
     assert not any("never" in e and "zero" in e for e in oks)
     write(res, md)
     assert env.from_string(md.read_text()).render(**ctx) == rendered
+
+
+def test_extract_mimics_whitespace_control(tmp_path):
+    md = tmp_path / "results.md"
+    md.write_text("Among the most of the\n{#- lint-ok: judgement #} {{ f.a }} cases rose.\n")
+    env = make_jinja_env(tmp_path)
+    ctx = {"f": {"a": 37}}
+    rendered = env.from_string(md.read_text()).render(**ctx)
+    write(extract(md, tmp_path, env, ctx), md)
+    assert env.from_string(md.read_text()).render(**ctx) == rendered
