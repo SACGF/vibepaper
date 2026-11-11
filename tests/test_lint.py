@@ -1,7 +1,7 @@
 """Tests for `vibepaper lint` and the claim-word lexicon (issue #9)."""
 
 from vibepaper.claims import claim_words
-from vibepaper.lint import format_findings, line_ending_issues, lint_text
+from vibepaper.lint import format_findings, line_ending_issues, lint_text, unused_facts
 from vibepaper.render import make_jinja_env
 
 
@@ -30,14 +30,19 @@ def test_line_number_of_later_sentence():
     assert f.line == 2 and f.words == ["nearly"]
 
 
-def test_word_filter_covers_paragraph():
-    text = "REST is {{ r.ratio | orders_of_magnitude }} faster than UTA.\n"
-    assert lint_text(text, "x.md") == []
-
-
-def test_assert_covers_paragraph():
-    text = "{% assert r.a > r.b %}\nDominated by {{ r.a }} then {{ r.b }}.\n"
-    assert lint_text(text, "x.md") == []
+def test_coverage_is_per_sentence():
+    # Issue #17: one word filter or assert used to silence every sentence in
+    # its paragraph. Now a word filter covers its own sentence, and an assert
+    # covers the sentences that use a fact it reads.
+    text = (
+        "{% assert r.a > r.b %}\n"
+        "REST is {{ r.ratio | orders_of_magnitude }} faster than UTA. "
+        "It is dominated by {{ r.a }} then {{ r.b }}. "
+        "A {{ r.f | fold(1) }} increase. "
+        "It is absent from UTA entirely ({{ r.n }}).\n"
+    )
+    [f] = lint_text(text, "x.md")
+    assert f.words == ["entirely"]
 
 
 def test_assert_separated_by_blank_line_does_not_cover():
@@ -71,11 +76,11 @@ def test_rounding_to_100_beside_every(tmp_path):
     [f] = lint_text(text, "x.md", env, {"v": {"pct": 99.97}})
     assert f.kind == "rounding"
 
-    text = "{% assert v.n > 0 %}\nEvery variant matched ({{ v.pct | dp(1) }}%).\n"
-    [f] = lint_text(text, "x.md", env, {"v": {"pct": 99.97, "n": 1}})
+    text = "{% assert v.pct > 99 %}\nEvery variant matched ({{ v.pct | dp(1) }}%).\n"
+    [f] = lint_text(text, "x.md", env, {"v": {"pct": 99.97}})
     assert f.kind == "rounding" and "99.97" in f.detail
     # exactly 100 is fine
-    assert lint_text(text, "x.md", env, {"v": {"pct": 100.0, "n": 1}}) == []
+    assert lint_text(text, "x.md", env, {"v": {"pct": 100.0}}) == []
 
 
 def test_format_findings_summary():
@@ -100,3 +105,22 @@ def test_line_ending_issues_flags_minority_and_mixed_files(tmp_path):
     (tmp_path / "mixed.csv").unlink()
     (tmp_path / "crlf.csv").unlink()
     assert line_ending_issues(tmp_path, tmp_path) == []
+
+
+def test_unused_facts(tmp_path):
+    facts = tmp_path / "facts"
+    facts.mkdir()
+    (facts / "inc.md").write_text("{{ a.from_include }}\n")
+    sec = tmp_path / "r.md"
+    sec.write_text(
+        "{{ a.x | dp(1) }} {{ a['y'] }} {{ a.x_more }}\n"
+        "{% for k, v in whole.items() %}{{ v }}{% endfor %}\n"
+        '{% include facts_dir + "/inc.md" %}\n'
+    )
+    context = {
+        "facts_dir": str(facts),
+        "a": {"x": 1, "y": 2, "x_more": 3, "from_include": 4, "new_col": 5, "raw_1": 6,
+              "_prov": {"tools": {"cdot": "0.2.37"}}},
+        "whole": {"p": 1, "q": 2},
+    }
+    assert unused_facts(context, [sec], tmp_path, facts, ["a.raw_*"]) == ["a.new_col"]

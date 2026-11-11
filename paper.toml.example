@@ -48,3 +48,7 @@ supplementary = ["paper/supplementary.md"]
 # Kinds: within_pct (relative to the second value), within (absolute), factor.
 # close_to = { within_pct = 10 }
 # comparable_to = { factor = 2 }
+
+# [lint]
+# Facts that `vibepaper lint --unused` should not report (globs on ns.field).
+# unused_ok = ["bench.raw_*"]

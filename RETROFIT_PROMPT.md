@@ -17,7 +17,7 @@ This paper uses [vibepaper](https://pypi.org/project/vibepaper/): every number i
   - `{{ x.n | number_word }}` → "three"
 - **`{% assert condition, "message" %}`** goes on the line directly above a sentence. It renders nothing, and the build fails, showing the fact values, if the condition is false.
 - **`{# lint-ok: reason #}`** in a paragraph accepts its wording as deliberate.
-- **`vibepaper lint`** lists sentences with a fact beside a claim word and no word filter or assert in the paragraph, plus facts that round to 100.0/0.0 beside "every"/"none".
+- **`vibepaper lint`** lists sentences with a fact beside a claim word that nothing covers: no word filter on one of the sentence's facts, and no assert in the paragraph that reads one of them, plus facts that round to 100.0/0.0 beside "every"/"none".
 - **`vibepaper check`** evaluates every assert against the facts that exist, without a build: PASS, FAIL (with values), or MISSING when a facts file isn't there yet. Use it when some facts are slow to produce.
 - **`vibepaper diff`** (after a build) reports which facts changed by name and which unchecked sentences use them.
 

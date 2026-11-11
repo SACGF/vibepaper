@@ -1,8 +1,9 @@
 """``vibepaper lint``: find claim words beside facts that nothing checks.
 
 A sentence is flagged when it contains a ``{{ fact }}`` reference and a claim
-word (see :mod:`vibepaper.claims`), and its paragraph has neither a word filter
-(``approx``, ``within_pct``, ...) nor an ``{% assert %}``. The output is a to-do
+word (see :mod:`vibepaper.claims`), and nothing covers it: no word filter
+(``approx``, ``within_pct``, ``fold``, ...) on one of its facts, and no
+``{% assert %}`` in the paragraph that reads one of its facts. The output is a to-do
 list: convert the wording to a word filter, pin it with an assert, or mark the
 paragraph ``{# lint-ok: reason #}`` when the word is a true hedge.
 
@@ -12,22 +13,30 @@ is flagged even in covered paragraphs: the rounded digits make the totality
 claim look true when it is not. See issue #9.
 """
 
+import fnmatch
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from jinja2 import Environment, nodes
+
+from .assertions import AssertExtension, _collect_refs
 from .claims import TOTALITY_WORDS, claim_words
 from .provenance import mixed_versions
 from .words import WORD_FILTER_NAMES
+
+# Filters that generate the claim word themselves. ``fold`` writes the "-fold"
+# (issue #17).
+COVERING_FILTER_NAMES = (*WORD_FILTER_NAMES, "fold")
 
 _EXPR_RE = re.compile(r"\{\{(.*?)\}\}", re.DOTALL)
 _STMT_RE = re.compile(r"\{%.*?%\}", re.DOTALL)
 _COMMENT_RE = re.compile(r"\{#.*?#\}", re.DOTALL)
 _RAW_RE = re.compile(r"\{%-?\s*raw\s*-?%\}.*?\{%-?\s*endraw\s*-?%\}", re.DOTALL)
 _HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
-_ASSERT_RE = re.compile(r"\{%-?\s*assert\b")
+_ASSERT_TAG_RE = re.compile(r"\{%-?\s*assert\b.*?-?%\}", re.DOTALL)
 _LINT_OK_RE = re.compile(r"\{#-?\s*lint-ok\b")
-_WORD_FILTER_RE = re.compile(r"\|\s*(" + "|".join(WORD_FILTER_NAMES) + r")\b")
+_WORD_FILTER_RE = re.compile(r"\|\s*(" + "|".join(COVERING_FILTER_NAMES) + r")\b")
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z(\[\x00])")
 _ROUNDED_TOTAL_RE = re.compile(r"^\s*(100(\.0+)?|0\.0+)\s*%?\s*$")
 _FACT = "\x00{}\x00"
@@ -72,6 +81,20 @@ def _paragraphs(text: str):
         yield start, "\n".join(buf)
 
 
+_PARSE_ENV = Environment(extensions=[AssertExtension])
+
+
+def _refs(source: str) -> set[str]:
+    """Fact names (``ns.field``) that a template snippet reads."""
+    try:
+        tree = _PARSE_ENV.parse(source)
+    except Exception:
+        return set()
+    found: dict = {}
+    _collect_refs(tree, found)
+    return set(found)
+
+
 def _is_table(para: str) -> bool:
     return all(l.lstrip().startswith("|") for l in para.splitlines() if l.strip())
 
@@ -89,7 +112,9 @@ def lint_text(text: str, filename: str, env=None, context: dict | None = None) -
         # since a hedge accepted for one sentence says nothing about a rounded
         # "every" in another (issue #17).
         lint_ok = bool(_LINT_OK_RE.search(para))
-        covered = lint_ok or bool(_ASSERT_RE.search(para) or _WORD_FILTER_RE.search(para))
+        asserted: set[str] = set()
+        for tag in _ASSERT_TAG_RE.findall(para):
+            asserted |= _refs(tag)
 
         exprs: list[str] = []
 
@@ -113,6 +138,15 @@ def lint_text(text: str, filename: str, env=None, context: dict | None = None) -
             words = claim_words(prose)
             original = re.sub(r"\x00(\d+)\x00", lambda m: "{{" + exprs[int(m.group(1))] + "}}", sentence)
 
+            # Coverage is per sentence (issue #17): a word filter covers the
+            # sentence it is in, and an assert covers each sentence that uses
+            # a fact the assert reads.
+            facts = set().union(*(_refs("{{" + exprs[i] + "}}") for i in ids))
+            covered = (
+                lint_ok
+                or any(_WORD_FILTER_RE.search(exprs[i]) for i in ids)
+                or bool(facts & asserted)
+            )
             if words and not covered:
                 findings.append(Finding(filename, line, "unchecked", original, words))
 
@@ -181,6 +215,64 @@ def lint_files(paths: list[Path], project_root: Path, env=None, context=None) ->
     return findings
 
 
+_INCLUDE_RE = re.compile(r"""\{%-?\s*include\s+(facts_dir\s*\+\s*)?["']([^"']+)["']""")
+
+
+def unused_facts(
+    context: dict,
+    sources: list[Path],
+    project_root: Path,
+    facts_dir: Path,
+    allowed: list[str] = (),
+) -> list[str]:
+    """Facts (``ns.field``) that no section, or file it includes, refers to.
+
+    A re-run that adds a column (a new residual category, say) leaves the
+    prose silent about it; this lists such facts. A namespace used without a
+    field (``{% for k, v in ns.items() %}``) counts all its fields as used.
+    ``allowed`` holds glob patterns (``bench.raw_*``) to skip. See issue #17.
+    """
+    texts, seen, queue = [], set(), [p for p in sources if p.exists()]
+    while queue:
+        path = queue.pop()
+        if path in seen or not path.is_file():
+            continue
+        seen.add(path)
+        text = path.read_text()
+        texts.append(text)
+        for from_facts, name in _INCLUDE_RE.findall(text):
+            base = facts_dir if from_facts else project_root
+            queue.append(base / name.lstrip("/") if from_facts else base / name)
+            if not from_facts:
+                queue.append(facts_dir / name)
+    corpus = "\n".join(texts)
+
+    unused = []
+    for ns, fields in context.items():
+        if not isinstance(fields, dict):
+            continue
+        whole_use = (
+            r"(?<![\w.])" + re.escape(ns)
+            + r"""(?:\s*\.\s*(?:items|values|keys)\s*\(|\[(?!\s*["'])|(?![\w.\[]))"""
+        )
+        if re.search(whole_use, corpus):
+            continue
+        for name in fields:
+            if str(name).startswith("_"):     # _prov sidecar, not a fact
+                continue
+            full = f"{ns}.{name}"
+            if any(fnmatch.fnmatchcase(full, pat) for pat in allowed):
+                continue
+            used = re.search(
+                r"(?<![\w.])" + re.escape(ns) + r"""(\.""" + re.escape(str(name)) + r"""(?!\w)|\[\s*["']"""
+                + re.escape(str(name)) + r"""["']\s*\])""",
+                corpus,
+            )
+            if not used:
+                unused.append(full)
+    return unused
+
+
 def line_ending_issues(facts_dir: Path, project_root: Path | None = None) -> list[str]:
     """Facts CSVs whose line endings don't match the rest of the directory.
 
@@ -225,8 +317,8 @@ def format_findings(findings: list[Finding]) -> str:
     summary = []
     if unchecked:
         summary.append(
-            f"{len(unchecked)} sentence(s) have claim words next to facts with no "
-            "word filter or {% assert %} in the paragraph"
+            f"{len(unchecked)} sentence(s) have claim words next to facts that no "
+            "word filter or {% assert %} covers"
         )
     if rounding:
         summary.append(f"{len(rounding)} fact(s) round to 100/0 beside a totality word")

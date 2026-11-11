@@ -51,6 +51,7 @@ def load_config(config_path: Path) -> dict:
       paper.spell_out_up_to = 10  (word filters spell out integers up to this)
       claims                = {}  (judgement-word tolerances, e.g. close_to)
       paper.frozen_facts    = "paper/frozen_facts.csv"  (values kept from an earlier run)
+      lint.unused_ok        = []  (facts `lint --unused` may skip; globs on ns.field)
     """
     with open(config_path, "rb") as fh:
         raw = tomllib.load(fh)
@@ -77,6 +78,7 @@ def load_config(config_path: Path) -> dict:
         "spell_out_up_to": int(paper.get("spell_out_up_to", DEFAULT_SPELL_OUT_UP_TO)),
         "claims":        dict(raw.get("claims", {})),
         "frozen_facts":  paper.get("frozen_facts", "paper/frozen_facts.csv"),
+        "lint_unused_ok": list(raw.get("lint", {}).get("unused_ok", [])),
     }
 
 
@@ -95,6 +97,7 @@ def minimal_config(sections: list[str], name: str | None = None) -> dict:
         "spell_out_up_to": DEFAULT_SPELL_OUT_UP_TO,
         "claims":        {},
         "frozen_facts":  "paper/frozen_facts.csv",
+        "lint_unused_ok": [],
     }
 
 
