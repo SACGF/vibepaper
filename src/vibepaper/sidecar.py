@@ -166,9 +166,18 @@ def _normalise(masked: str) -> tuple[str, list[int]]:
 def quote_regex(quote: str) -> re.Pattern:
     """A quote as a pattern over :func:`_normalise`d text. A wildcard (``…``)
     also takes up the spaces around it, so "(+ … )" matches "(+{{ x }})"."""
-    pieces = [re.escape(" ".join(part.replace("*", "").lower().split()))
-              for part in _WILDCARD_RE.split(quote)]
-    return re.compile(" ?.*? ?".join(pieces))
+    parts = [" ".join(part.replace("*", "").lower().split()) for part in _WILDCARD_RE.split(quote)]
+    # A wildcard at either end adds nothing but would stretch the match to
+    # the sentence's start or end, covering words the quote doesn't show.
+    while len(parts) > 1 and not parts[0]:
+        parts.pop(0)
+    while len(parts) > 1 and not parts[-1]:
+        parts.pop()
+    body = " ?.*? ?".join(re.escape(p) for p in parts)
+    # Whole words only: "all" must not match inside "critically".
+    lead = r"(?<!\w)" if re.match(r"\w", parts[0]) else ""
+    tail = r"(?!\w)" if re.search(r"\w$", parts[-1]) else ""
+    return re.compile(lead + body + tail)
 
 
 def find(quote: str, masked: str) -> tuple[int, int] | None:

@@ -62,3 +62,13 @@ def test_lint_and_wordcount_cli(tmp_path):
     wc = subprocess.run([sys.executable, "-m", "vibepaper", "wordcount", "--check"], cwd=tmp_path,
                         capture_output=True, text=True)
     assert wc.returncode == 1 and "OVER" in wc.stdout and "abs.md" in wc.stdout
+
+
+def test_each_figure_counts_legend_paragraphs(tmp_path):
+    # Issue #50: legends under an image with empty alt text
+    (tmp_path / "f.md").write_text(
+        "![](fig1.png)\n\n**Figure 1. A title.** One two three four five six.\n\n"
+        "Prose between.\n\n**Figure 2. Other.** Short.\n")
+    limits = parse_limits({"legends": {"files": ["f.md"], "max_words": 5, "each": "figure"}})
+    counts = count_limits(limits, tmp_path)
+    assert [(c.item, c.ok) for c in counts] == [("f.md:3", False), ("f.md:7", True)]

@@ -468,7 +468,7 @@ main     = { files = ["paper/introduction.md", "paper/results.md", "paper/discus
 legends  = { files = ["paper/figures.md"], max_words = 300, each = "figure" }
 ```
 
-Words are counted in the text as the paper renders it, since facts and word filters change the count: a re-run that turns "three" into "twelve" or adds a hedge can push an abstract over its limit. Headings, tables, fenced code, YAML front matter, HTML comments (so `include-csv` directives), template tags, citations (`[@key]`) and figure lines (`![caption](file)`) are not counted. `each = "figure"` checks each figure caption on its own instead. `min_words` sets a lower bound. `vibepaper lint` reports a limit that is not met (it fails `--check`), and `vibepaper wordcount` prints each section's count and every limit:
+Words are counted in the text as the paper renders it, since facts and word filters change the count: a re-run that turns "three" into "twelve" or adds a hedge can push an abstract over its limit. Headings, tables, fenced code, YAML front matter, HTML comments (so `include-csv` directives), template tags, citations (`[@key]`) and figure lines (`![caption](file)`) are not counted. `each = "figure"` checks each figure legend on its own instead: an image's alt text, or a paragraph that starts "Figure N" (also bold, `**Figure 2. Title.** ...`). `min_words` sets a lower bound. `vibepaper lint` reports a limit that is not met (it fails `--check`), and `vibepaper wordcount` prints each section's count and every limit:
 
 ```
 paper/abstract.md        263

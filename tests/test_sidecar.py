@@ -170,7 +170,7 @@ def test_extract_moves_inline_checks(tmp_path):
     assert [(e.kind, e.quotes) for e in entries] == [
         ("claim", ["about a quarter"]),
         ("claim", ["size doubled from"]),
-        ("ok", ["holds nearly …"]),
+        ("ok", ["holds nearly … of"]),
         ("check", []),
     ]
     assert entries[3].expr == "r.fold > 0" and entries[3].message == "positive"
@@ -216,3 +216,29 @@ def test_build_facts_dir_is_relative_to_cwd(tmp_path):
                            "--facts-dir", "paper/facts", "--md"], cwd=tmp_path,
                           capture_output=True, text=True)
     assert proc.returncode == 0, proc.stderr
+
+
+def test_quote_matches_whole_words_and_edge_wildcards_add_nothing():
+    # Issue #50
+    assert find("all … retain", "Critically, all \x000\x00 retain it.") == (12, 26)
+    assert find("ally", "Critically, all retain.") is None
+    span = find("… ; only …", "Across all \x000\x00 items; only \x001\x00 differ.")
+    assert span[0] > len("Across all")
+
+
+def test_extract_quote_does_not_cover_words_the_tag_did_not(tmp_path):
+    # Issue #50: a quote "… ; only …" covered the unchecked "all"
+    md = tmp_path / "results.md"
+    md.write_text(
+        "{% assert d.diff_pct < 5, \"'only a few differ'\" %}\n"
+        "Across all {{ d.n_total }} items, the label was identical for {{ d.same_pct }};"
+        " only {{ d.n_diff }} ({{ d.diff_pct }}) received a different label.\n")
+    env = make_jinja_env(tmp_path)
+    ctx = {"d": {"n_total": 1000, "same_pct": 97.5, "n_diff": 25, "diff_pct": 2.5}}
+    before = lint_files([md], tmp_path, env, ctx)
+    assert [f.words for f in before] == [["all"]]
+    res = extract(md, tmp_path, env, ctx)
+    write(res, md)
+    [e] = load(sidecar_path(md))
+    assert "all" not in e.quotes[0].split() and not e.quotes[0].startswith("…")
+    assert [f.words for f in lint_files([md], tmp_path, env, ctx)] == [["all"]]

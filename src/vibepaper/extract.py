@@ -114,37 +114,61 @@ def _tokens(masked: str) -> list[tuple[int, int]]:
 def _quote_text(masked: str, s: int, e: int) -> str:
     text = _FACT_RE.sub(" … ", masked[s:e])
     text = " ".join(text.replace("*", "").split())
-    return re.sub(r"(?:… ?){2,}", "… ", text).strip()
+    text = re.sub(r"(?:… ?){2,}", "… ", text).strip()
+    # No wildcard (or bare punctuation beside one) at either end.
+    return re.sub(r"^(?:[^\w…]*…)+[^\w…]*|(?:[^\w…]*…)+[^\w…]*$", "", text).strip()
 
 
-def _unique_quote(key, spans, sentences) -> str | None:
-    """Shortest quote around ``spans`` (offsets in the sentence ``key``) that
-    matches only that sentence."""
+def _words(q: str) -> int:
+    return len(re.findall(r"\w+", q))
+
+
+def _unique_quote(key, spans, sentences, forbidden=()) -> str | None:
+    """Shortest quote of at least MIN_WORDS words around ``spans`` (offsets
+    in the sentence ``key``) that matches only that sentence, and whose match
+    takes in none of ``forbidden``: words the tag did not cover, which the
+    quote would otherwise vouch for. If no such quote is unique, the
+    shortest one is returned, and lint will ask for a longer quote."""
     masked = next(m for k, _, m in sentences if k == key)
     toks = _tokens(masked)
     lo = min(s for s, _ in spans)
     hi = max(e for _, e in spans)
     first = next(i for i, (s, e) in enumerate(toks) if e > lo)
     last = max(i for i, (s, e) in enumerate(toks) if s < hi)
-    # At least MIN_WORDS words, so a quote stays unique as the paper grows.
-    while last - first + 1 < MIN_WORDS and (first > 0 or last < len(toks) - 1):
-        if last < len(toks) - 1:
-            last += 1
-        if last - first + 1 < MIN_WORDS and first > 0:
-            first -= 1
-    grow_right = True
+
+    def ok(f, l):
+        q = _quote_text(masked, toks[f][0], toks[l][1])
+        if not q:
+            return q, None
+        span = find(q, masked)
+        if span is None or not (span[0] <= lo and hi <= span[1]):
+            return q, None
+        if any(span[0] < e and s < span[1] for s, e in forbidden):
+            return q, False
+        return q, True
+
+    def grow(f, l, right):
+        if right and l < len(toks) - 1 and ok(f, l + 1)[1] is not False:
+            return f, l + 1
+        if not right and f > 0 and ok(f - 1, l)[1] is not False:
+            return f - 1, l
+        return None
+
+    fallback = None
+    right = True
     while True:
-        q = _quote_text(masked, toks[first][0], toks[last][1])
-        hits = [k for k, _, m in sentences if find(q, m)] if q.strip("… ") else []
-        if hits == [key]:
-            return q
-        if first == 0 and last == len(toks) - 1:
-            return q if q.strip("… ") else None
-        if (grow_right and last < len(toks) - 1) or first == 0:
-            last += 1
-        else:
-            first -= 1
-        grow_right = not grow_right
+        q, good = ok(first, last)
+        if good:
+            fallback = fallback or q
+            hits = [k for k, _, m in sentences if find(q, m)]
+            # At least MIN_WORDS words, so a quote stays unique as the paper grows.
+            if hits == [key] and (_words(q) >= MIN_WORDS or (first == 0 and last == len(toks) - 1)):
+                return q
+        step = grow(first, last, right) or grow(first, last, not right)
+        if step is None:
+            return fallback or (q if q else None)
+        first, last = step
+        right = not right
 
 
 def _message_quotes(tag: str, by_sentence: dict, sentences) -> list[str]:
@@ -268,15 +292,26 @@ def extract(path: Path, project_root: Path, env, context=None, allowed_numbers=(
         t.other = bool(all_other - other)
 
     entries, res = [], ExtractResult(name, _shown(side, project_root), text, "", kept=kept)
+    # A quote must not take in words the tag didn't cover, or the sidecar
+    # would vouch for wording nothing checked: for a claim, any word no
+    # assert or filter covers; for an ok, any word nothing accepts.
+    base_rec, _, _ = _lint_record(text, allowed_numbers, context, env)
+    open_for = {"assert": all_rec["unaccepted"],
+                "ok": base_rec["unaccepted"] | base_rec["numbers"]}
     for t in tags:
         by_sentence: dict = {}
         for key, s, e, _ in t.covers:
             by_sentence.setdefault(key, []).append((s, e))
+        mine = {(k, s, e) for k, s, e, _ in t.covers}
+        forbidden: dict = {}
+        for k, s, e, _ in open_for[t.kind]:
+            if (k, s, e) not in mine:
+                forbidden.setdefault(k, []).append((s, e))
         quotes = []
         if t.kind == "assert":
             quotes = _message_quotes(t.text, by_sentence, sentences)
         if not quotes:
-            quotes = [q for q in (_unique_quote(k, v, sentences)
+            quotes = [q for q in (_unique_quote(k, v, sentences, forbidden.get(k, ()))
                                   for k, v in sorted(by_sentence.items())) if q]
         if t.kind == "assert":
             expr, message = _assert_parts(t.text, env)

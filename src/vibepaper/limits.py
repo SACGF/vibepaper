@@ -12,9 +12,9 @@ Words are counted in the text as the paper renders it, since facts and word
 filters change the count ("12,431" is one word, "twelve" is one, "about a
 quarter" three). Not counted: headings, tables, fenced code, YAML front
 matter, HTML comments (so ``include-csv`` directives), template tags and
-comments, citations (``[@key]``) and figure lines (``![caption](file)``),
-except with ``each = "figure"``, which checks each figure caption on its own
-instead. ``max_words`` may be paired with ``min_words``.
+comments, citations (``[@key]``) and figure lines (``![caption](file)``).
+``each = "figure"`` checks each figure legend on its own instead: the alt
+text of an image, or a paragraph starting "Figure N" / "**Figure N.**". ``max_words`` may be paired with ``min_words``.
 
 When a section can't be rendered (facts missing), its source is counted with
 each ``{{ fact }}`` as one word, and the count is marked as an estimate.
@@ -133,10 +133,27 @@ def prose_words(text: str) -> int:
     return len(_WORD_RE.findall(text))
 
 
+# A legend written as its own paragraph: "**Figure 2. Title.** Text ..." or
+# "Supplementary Figure S3: ...", issue #50.
+_LEGEND_RE = re.compile(r"^[ \t]*[*_]*\s*(?:Supplementary\s+)?(?:Figure|Fig\.)\s+S?\d+[A-Za-z]?\b",
+                        re.IGNORECASE)
+
+
 def figure_captions(text: str) -> list[tuple[int, str]]:
-    """(line, caption) of each ``![caption](file)`` in rendered Markdown."""
+    """(line, caption) of each figure legend in rendered Markdown: the alt
+    text of ``![caption](file)``, and each paragraph that starts with
+    "Figure N" (bold or not), which is how many papers write a legend under
+    an image with empty alt text."""
     text = _blank(_blank(_blank(text, _FENCED_RE), _HTML_COMMENT_RE), _TAG_RE)
-    return [(1 + text.count("\n", 0, m.start()), m.group(1)) for m in _FIGURE_RE.finditer(text)]
+    out = [(1 + text.count("\n", 0, m.start()), m.group(1))
+           for m in _FIGURE_RE.finditer(text) if m.group(1).strip()]
+    line = 1
+    for para in re.split(r"(\n[ \t]*\n)", text):
+        if _LEGEND_RE.match(para.lstrip("\n")):
+            lead = len(para) - len(para.lstrip("\n"))
+            out.append((line + para.count("\n", 0, lead), " ".join(para.split())))
+        line += para.count("\n")
+    return sorted(out)
 
 
 def _rendered(path: Path, env, context) -> tuple[str, bool]:
