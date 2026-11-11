@@ -7,6 +7,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from .facts import fact_type
+
 CACHE_FILENAME = ".last_render.md"
 FACTS_CACHE_FILENAME = ".last_facts.json"
 
@@ -180,8 +182,12 @@ def _jsonable(value):
     return str(value)
 
 
+TYPE_SUFFIX = "@type"
+
+
 def flatten_facts(context: dict) -> dict:
-    """``{"ns": {"field": v}}`` → ``{"ns.field": v}``; ``facts_dir`` is skipped."""
+    """``{"ns": {"field": v}}`` → ``{"ns.field": v}``; ``facts_dir`` is skipped.
+    A typed fact also gets ``"ns.field@type": "fraction"`` (issue #12)."""
     flat: dict = {}
 
     def walk(prefix, value):
@@ -190,6 +196,8 @@ def flatten_facts(context: dict) -> dict:
                 walk(f"{prefix}.{k}" if prefix else str(k), v)
         else:
             flat[prefix] = _jsonable(value)
+            if fact_type(value):
+                flat[prefix + TYPE_SUFFIX] = fact_type(value)
 
     for key, value in context.items():
         if key == "facts_dir":
@@ -217,6 +225,18 @@ class FactChange:
     old: object          # None when added
     new: object          # None when removed
     references: list[tuple[str, int]]   # (file, count) in the paper sources
+    old_type: str | None = None
+    new_type: str | None = None
+
+    @property
+    def type_changed(self) -> bool:
+        return bool(self.old_type and self.new_type and self.old_type != self.new_type)
+
+    def change_note(self) -> str:
+        """'type fraction → percent' when the type changed, else the % change."""
+        if self.type_changed:
+            return f"type {self.old_type} → {self.new_type}"
+        return _pct_change(self.old, self.new)
 
     @property
     def action(self) -> str:
@@ -231,14 +251,17 @@ def diff_facts(old: dict, new: dict) -> list[FactChange]:
     """Facts whose value differs between two flattened fact dicts.
 
     Provenance entries (``ns._prov.*``) are left out; see
-    :func:`vibepaper.provenance.provenance_changes`."""
+    :func:`vibepaper.provenance.provenance_changes`. A change of declared type
+    (e.g. fraction 0.0153 → percent 1.53) is one change that names the types;
+    declaring a type for the first time is not a change."""
     changes = []
     for name in sorted(set(old) | set(new)):
-        if "._prov." in name:
+        if "._prov." in name or name.endswith(TYPE_SUFFIX):
             continue
         a, b = old.get(name), new.get(name)
-        if a != b:
-            changes.append(FactChange(name, a, b, []))
+        c = FactChange(name, a, b, [], old.get(name + TYPE_SUFFIX), new.get(name + TYPE_SUFFIX))
+        if a != b or c.type_changed:
+            changes.append(c)
     return changes
 
 
@@ -275,8 +298,8 @@ def format_fact_changes(changes: list[FactChange], referenced_only: bool = True)
             desc = f"{_fmt_value(c.old)} → (removed)"
         else:
             desc = f"{_fmt_value(c.old)} → {_fmt_value(c.new)}"
-            if isinstance(c.old, (int, float)) and isinstance(c.new, (int, float)) and c.old:
-                desc += f" ({(c.new - c.old) / abs(c.old) * 100:+.0f}%)"
+            if c.change_note():
+                desc += f" ({c.change_note()})"
         refs = ", ".join(f"{f} ×{n}" if n > 1 else f for f, n in c.references)
         lines.append(f"  {c.name} {desc}" + (f", referenced in {refs}" if refs else ""))
     unreferenced = len(changes) - len(shown)
@@ -436,6 +459,7 @@ class RenderedChange:
     old_shown: str          # as the paper renders it (first use's filters)
     new_shown: str
     uses: list[tuple[str, int, str]]
+    note: str = ""          # % change, or the type change
 
 
 def compare_facts(old_context: dict, new_context: dict, sources: dict[str, str], env):
@@ -459,7 +483,7 @@ def compare_facts(old_context: dict, new_context: dict, sources: dict[str, str],
              "(removed)" if c.action == "removed" else _render(env, e, new_context))
             for _, _, e in u
         ]
-        rc = RenderedChange(c.name, c.old, c.new, pairs[0][0], pairs[0][1], u)
+        rc = RenderedChange(c.name, c.old, c.new, pairs[0][0], pairs[0][1], u, c.change_note())
         if all(a == b for a, b in pairs):
             same.append(rc)
         else:
@@ -492,7 +516,7 @@ def format_compare(changed, same, unreferenced: int, against: str, fmt: str = "t
             for c in changed:
                 lines.append(
                     f"| `{c.name}` | {c.old_shown} | {c.new_shown} | "
-                    f"{_pct_change(c.old, c.new)} | {_where(c.uses)} |"
+                    f"{c.note} | {_where(c.uses)} |"
                 )
         if same:
             lines += ["", f"Changed but renders the same ({len(same)}): "
@@ -500,10 +524,9 @@ def format_compare(changed, same, unreferenced: int, against: str, fmt: str = "t
     else:
         lines = [f"{len(changed)} fact(s) the paper uses changed against {against}:"]
         for c in changed:
-            pct = _pct_change(c.old, c.new)
             lines.append(
                 f"  {c.name}: {c.old_shown} → {c.new_shown}"
-                + (f" ({pct})" if pct else "") + f"   {_where(c.uses)}"
+                + (f" ({c.note})" if c.note else "") + f"   {_where(c.uses)}"
             )
         if same:
             lines.append(f"{len(same)} fact(s) changed but render the same:")

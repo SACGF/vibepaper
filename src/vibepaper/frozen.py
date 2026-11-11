@@ -19,6 +19,8 @@ import csv
 from dataclasses import dataclass
 from pathlib import Path
 
+from .facts import TYPES, FactTypeError, fact_type
+
 HEADER = ["fact", "value", "reason"]
 
 
@@ -74,7 +76,15 @@ def apply_frozen(context: dict, path: Path) -> list[FrozenFact]:
         ns = context.setdefault(namespace, {})
         if not isinstance(ns, dict):
             raise ValueError(f"{path}: {r.fact}: '{namespace}' is not a facts namespace")
-        ns[field] = r.value
+        old_type = fact_type(ns.get(field))
+        if old_type:
+            # A frozen value keeps the type its facts CSV declares (issue #12).
+            try:
+                ns[field] = TYPES[old_type](r.value)
+            except FactTypeError as exc:
+                raise ValueError(f"{path}: {r.fact}: {exc}") from None
+        else:
+            ns[field] = r.value
     return rows
 
 

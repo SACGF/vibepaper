@@ -17,7 +17,7 @@ This paper uses [vibepaper](https://pypi.org/project/vibepaper/): every number i
   - `{{ x.n | number_word }}` → "three"
 - **`{% assert condition, "message" %}`** goes on the line directly above a sentence. It renders nothing, and the build fails, showing the fact values, if the condition is false.
 - **`{# lint-ok: reason #}`** in a paragraph accepts its wording as deliberate.
-- **`vibepaper lint`** lists sentences with a fact beside a claim word that nothing covers: no word filter on one of the sentence's facts, and no assert in the paragraph that reads one of them, plus facts that round to 100.0/0.0 beside "every"/"none".
+- **`vibepaper lint`** lists sentences with a fact beside a claim word that nothing covers: no word filter on one of the sentence's facts, and no assert in the paragraph that reads one of them, plus facts that round to 100.0/0.0 beside "every"/"none", and percents that may print at the wrong magnitude.
 - **`vibepaper check`** evaluates every assert against the facts that exist, without a build: PASS, FAIL (with values), or MISSING when a facts file isn't there yet. Use it when some facts are slow to produce.
 - **`vibepaper diff`** (after a build) reports which facts changed by name and which unchecked sentences use them.
 
@@ -82,6 +82,7 @@ Rules:
 - A derived value that a filter consumes is computed in the script, not the template.
 - An assert's message names the sentence it protects.
 - Do not make wording vaguer just to dodge lint ("approximately 28–33%" → "a substantial fraction"). Prefer a word filter or an assert.
+- If lint flags a percent that may print at the wrong magnitude (`{{ x | dp }}%` on a fraction), check the value in the facts CSV, then declare its type there (`fraction` or `percent`, in a `type` column) and use `| pct`. Fix the producer script too, so a re-run keeps the type.
 - If lint flags a fact that renders as `100.0` or `0.0` only by rounding beside "every"/"all"/"none", either weaken the totality word or show more precision. A rounded 100.0% beside "every" claims something the data does not support.
 
 ### Step 4: Verify

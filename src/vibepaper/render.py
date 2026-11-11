@@ -25,6 +25,8 @@ from jinja2 import (
 from jinja2.ext import Extension
 
 from .assertions import AssertExtension, FactAssertionError, collect_failures
+from .errors import ConfigError
+from .facts import FILTER_REFUSES, FactTypeError, check_filter, pct as filter_pct, typed
 from .provenance import KEY as PROVENANCE_KEY, read_provenance
 from .tolerances import claim_tests
 from .words import DEFAULT_SPELL_OUT_UP_TO, FILTERS as WORD_FILTERS
@@ -63,6 +65,10 @@ def load_facts(facts_dir: Path) -> dict:
     - **Vertical** (preferred): header ``field,value``, one row per fact.
     - **Horizontal** (legacy): column names as header, single data row.
 
+    A vertical CSV may add a third ``type`` column (``fraction``, ``percent``,
+    ``count``, ...): those values are loaded as typed numbers that filters
+    check (issue #12, :mod:`vibepaper.facts`). Horizontal CSVs are untyped.
+
     Each file 'foo_bar.csv' becomes context['foo_bar'] = {field: value, ...}.
     An optional 'foo_bar.provenance.json' sidecar is added as
     context['foo_bar']['_prov'] (issue #13).
@@ -76,6 +82,8 @@ def load_facts(facts_dir: Path) -> dict:
                 lambda s: s.notna(), df["value"]
             )
             context[csv_path.stem] = dict(zip(df["field"], values))
+            if len(df.columns) > 2 and df.columns[2] == "type":
+                context[csv_path.stem].update(_typed_rows(csv_path))
         elif len(df) == 1:
             # Horizontal (legacy): single data row
             context[csv_path.stem] = df.iloc[0].to_dict()
@@ -89,6 +97,24 @@ def load_facts(facts_dir: Path) -> dict:
             context[namespace][PROVENANCE_KEY] = prov
         log.debug("Loaded facts: %s (%d fields)", namespace, len(context[namespace]))
     return context
+
+
+def _typed_rows(csv_path: Path) -> dict:
+    """``field → typed value`` for the rows of a vertical CSV that have a type
+    (issue #12). Read as raw strings so a ``text`` fact keeps "1.10" as written."""
+    raw = pd.read_csv(csv_path, dtype=str, keep_default_na=False)
+    out = {}
+    for n, (field, value, type_name) in enumerate(
+        zip(raw["field"], raw["value"], raw["type"]), start=2
+    ):
+        type_name = type_name.strip()
+        if not type_name:
+            continue
+        try:
+            out[field] = typed(value if type_name == "text" else value.strip(), type_name)
+        except FactTypeError as exc:
+            raise ConfigError(f"{csv_path}:{n}: {field}: {exc}") from None
+    return out
 
 
 class _TrustedAbsoluteLoader(BaseLoader):
@@ -146,6 +172,14 @@ class WholeLineCommentExtension(Extension):
         return "".join(out)
 
 
+def _type_checked(name: str, fn):
+    @functools.wraps(fn)
+    def wrapper(value, *args, **kwargs):
+        check_filter(name, value)
+        return fn(value, *args, **kwargs)
+    return wrapper
+
+
 def make_jinja_env(
     project_root: Path,
     extra_search_paths: list[Path] | None = None,
@@ -188,20 +222,6 @@ def make_jinja_env(
         """Integer with thousands separator: 254129 → '254,129'"""
         return f"{int(float(value)):,}"
 
-    def filter_pct(value, decimals=1):
-        """Removed. The name invited passing a fraction; the contract wanted a
-        pre-multiplied percent — a silent magnitude bug. Use ``dp`` + a literal
-        ``%`` so the call site is unambiguous. See issue #4."""
-        raise RuntimeError(
-            "The `pct` filter has been removed (issue #4). It formatted a "
-            "pre-multiplied percent but its name invited passing a fraction, "
-            "which silently rendered the wrong magnitude (0.923 → '0.9%').\n"
-            "Fix: emit pre-multiplied percent values from your fact scripts, "
-            "then format in the template with `dp` plus a literal percent sign:\n"
-            f"    {{{{ value | dp({decimals}) }}}}%\n"
-            "e.g.  {{ rate | pct(1) }}  ->  {{ rate | dp(1) }}%"
-        )
-
     def filter_fold(value, decimals=1) -> str:
         """Fold change: 2.003 → '2.0-fold'"""
         return f"{float(value):.{decimals}f}-fold"
@@ -225,10 +245,27 @@ def make_jinja_env(
             fn = functools.partial(fn, spell_out_up_to=spell_out_up_to)
         env.filters[name] = fn
 
+    # Typed facts (issue #12): refuse a type the filter would mis-scale.
+    for name in FILTER_REFUSES:
+        if name in env.filters:
+            env.filters[name] = _type_checked(name, env.filters[name])
+
     env.tests.update(claim_tests(claims))
     env.claims = dict(claims or {})
 
     return env
+
+
+def _template_line(exc: BaseException) -> int | None:
+    """Line in the section source where ``exc`` was raised, from the frames
+    Jinja adds for template code; None if it came from an included file."""
+    line = None
+    tb = exc.__traceback__
+    while tb is not None:
+        if tb.tb_frame.f_code.co_filename == "<template>":
+            line = tb.tb_lineno
+        tb = tb.tb_next
+    return line
 
 
 def render_file(
@@ -258,8 +295,11 @@ def render_file(
         raise TemplateRenderError(f"{input_path}:{exc.lineno}: {exc.message}{hint}") from exc
     except ValueError as exc:
         # Word filters raise ValueError when the claim no longer fits the fact
-        # (e.g. within_pct above 50%).
-        raise TemplateRenderError(f"Template error in {input_path}: {exc}") from exc
+        # (e.g. within_pct above 50%), and typed facts when a filter would
+        # mis-scale one (issue #12).
+        line = _template_line(exc)
+        where = f"{input_path}:{line}" if line else str(input_path)
+        raise TemplateRenderError(f"Template error in {where}: {exc}") from exc
     except TemplateNotFound as exc:
         # {% include %} is confined to trusted roots (the project tree and the
         # user-provided facts_dir). An absolute path that lands here is outside
