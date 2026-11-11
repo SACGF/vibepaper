@@ -317,7 +317,7 @@ vibepaper lint            # sections from paper.toml
 vibepaper lint --check    # exit 1 if anything is flagged (CI)
 ```
 
-Lint lists every sentence that references a `{{ fact }}` and contains a claim word (rises, falls, higher, under, within, nearly, roughly, about, over, all, every, none, only, dominated, largest, most, doubled, -fold, versus, …), where the paragraph has neither a word filter nor an `{% assert %}`:
+Lint lists every sentence that references a `{{ fact }}` and contains a claim word (rises, falls, higher, under, within, nearly, roughly, about, over, all, every, none, only, dominated, largest, most, doubled, -fold, versus, …), where nothing covers that sentence. A word filter (including `fold`) covers the sentence it is in. An `{% assert %}` covers each sentence in its paragraph that uses a fact the assert reads, so an assert about `r.indel_count` does not vouch for a sentence that shows only `r.total`:
 
 ```
 paper/results.md:3: roughly, orders of magnitude, faster
@@ -329,6 +329,13 @@ paper/results.md:11: {{ bench.matched_pct | dp(1) }} renders '100.0' but the val
 ```
 
 The second kind of finding needs facts, and is reported even in covered paragraphs: a value that only *rounds* to 100.0 or 0.0 next to "every" or "none".
+
+`vibepaper lint --unused` also lists facts that the paper never references, so a column added by a re-run (a new residual category, say) doesn't go unmentioned. It searches the sections and the files they `{% include %}`. A namespace used as a whole (`{% for k, v in ns.items() %}`) counts as used. Skip facts that are unused on purpose with glob patterns in `paper.toml`:
+
+```toml
+[lint]
+unused_ok = ["bench.raw_*", "clinvar_residual_positions.*"]
+```
 
 Lint also lists facts CSVs whose line endings (CRLF or LF) differ from the rest of the facts directory. This is a note only and does not make `--check` fail.
 
@@ -716,6 +723,11 @@ frozen_facts = "paper/frozen_facts.csv"
 # Judgement-word tolerances, used as {% assert x is close_to(95) %}.
 # Kinds: within_pct (relative), within (absolute), factor. Default: none.
 close_to = { within_pct = 10 }
+
+[lint]
+# Facts that `vibepaper lint --unused` should not report (globs on ns.field).
+# Default: []
+unused_ok = ["bench.raw_*"]
 ```
 
 ### Word reference document
@@ -799,12 +811,14 @@ vibepaper wrap <FILE.md ...> [--width N] [--check]
   vibepaper wrap paper/*.md --width 72         # custom width
   vibepaper wrap paper/*.md --check            # exit 1 if changes needed (CI)
 
-vibepaper lint [FILE.md ...] [--config FILE] [--facts-dir DIR] [--check]
+vibepaper lint [FILE.md ...] [--config FILE] [--facts-dir DIR] [--unused] [--check]
 
   List sentences that reference a {{ fact }} and contain a claim word
-  (rises, within, nearly, all, every, dominated, ...) with no word filter or
-  {% assert %} in the paragraph, and facts that round to 100.0/0.0 beside
-  "every"/"none". Mark a paragraph {# lint-ok: reason #} to accept it.
+  (rises, within, nearly, all, every, dominated, ...) that nothing covers: no
+  word filter on one of the sentence's facts, and no {% assert %} in the
+  paragraph that reads one of them. Also lists facts that round to 100.0/0.0
+  beside "every"/"none". Mark a paragraph {# lint-ok: reason #} to accept its
+  wording. --unused also lists facts the paper never references.
 
   vibepaper lint                               # sections from paper.toml
   vibepaper lint --check                       # exit 1 if anything flagged (CI)

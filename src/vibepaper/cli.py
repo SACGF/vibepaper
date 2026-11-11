@@ -138,9 +138,10 @@ def main():
         help="List claim words next to facts that no word filter or assert checks.",
         description=(
             "List every sentence that references a {{ fact }} and contains a claim\n"
-            "word (rises, falls, within, nearly, all, every, dominated, ...) where\n"
-            "the paragraph has neither a word filter (approx, within_pct, ...) nor\n"
-            "an {% assert %}. Add {# lint-ok: reason #} to a paragraph to accept\n"
+            "word (rises, falls, within, nearly, all, every, dominated, ...) that\n"
+            "nothing covers: no word filter (approx, within_pct, fold, ...) on one of\n"
+            "its facts, and no {% assert %} in the paragraph that reads one of its\n"
+            "facts. Add {# lint-ok: reason #} to a paragraph to accept\n"
             "its wording as-is.\n\n"
             "When facts are available, also flags facts that round to 100.0 / 0.0\n"
             "beside a totality word ('every', 'none').\n\n"
@@ -159,6 +160,11 @@ def main():
     lint_parser.add_argument(
         "--facts-dir", metavar="DIR",
         help="Facts directory for the rounding check (overrides paper.toml).",
+    )
+    lint_parser.add_argument(
+        "--unused", action="store_true",
+        help="Also list facts the paper never references (skip some with [lint] unused_ok "
+             "in paper.toml).",
     )
     lint_parser.add_argument(
         "--check", action="store_true",
@@ -691,7 +697,7 @@ def _section_inputs(args):
 
 
 def _run_lint(args):
-    from .lint import format_findings, line_ending_issues, lint_files
+    from .lint import format_findings, line_ending_issues, lint_files, unused_facts
 
     config, project_root, paths, facts_dir = _section_inputs(args)
     env = context = None
@@ -710,7 +716,20 @@ def _run_lint(args):
                 "lineterminator=\"\\n\") or pandas to_csv):"
             )
             print("\n".join("  " + e for e in endings))
-    if args.check and findings:
+    unused = []
+    if args.unused:
+        if context is None:
+            print(f"\n--unused needs facts; {facts_dir} not found.", file=sys.stderr)
+        else:
+            unused = unused_facts(context, paths, project_root, facts_dir,
+                                  config.get("lint_unused_ok", []))
+            if unused:
+                print(f"\n{len(unused)} fact(s) the paper never references "
+                      "(use them, or list them under [lint] unused_ok in paper.toml):")
+                print("\n".join("  " + u for u in unused))
+            else:
+                print("\nEvery fact is referenced.")
+    if args.check and (findings or unused):
         sys.exit(1)
 
 
