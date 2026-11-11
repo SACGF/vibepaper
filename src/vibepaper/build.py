@@ -52,6 +52,7 @@ def load_config(config_path: Path) -> dict:
       claims                = {}  (judgement-word tolerances, e.g. close_to)
       paper.frozen_facts    = "paper/frozen_facts.csv"  (values kept from an earlier run)
       lint.unused_ok        = []  (facts `lint --unused` may skip; globs on ns.field)
+      lint.allowed_numbers  = []  (design values `lint --numbers` accepts, e.g. "95%")
     """
     with open(config_path, "rb") as fh:
         raw = tomllib.load(fh)
@@ -79,6 +80,7 @@ def load_config(config_path: Path) -> dict:
         "claims":        dict(raw.get("claims", {})),
         "frozen_facts":  paper.get("frozen_facts", "paper/frozen_facts.csv"),
         "lint_unused_ok": list(raw.get("lint", {}).get("unused_ok", [])),
+        "lint_allowed_numbers": [str(n) for n in raw.get("lint", {}).get("allowed_numbers", [])],
     }
 
 
@@ -98,6 +100,7 @@ def minimal_config(sections: list[str], name: str | None = None) -> dict:
         "claims":        {},
         "frozen_facts":  "paper/frozen_facts.csv",
         "lint_unused_ok": [],
+        "lint_allowed_numbers": [],
     }
 
 

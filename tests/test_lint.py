@@ -124,3 +124,24 @@ def test_unused_facts(tmp_path):
         "whole": {"p": 1, "q": 2},
     }
     assert unused_facts(context, [sec], tmp_path, facts, ["a.raw_*"]) == ["a.new_col"]
+
+
+def test_hand_typed_numbers():
+    # Issue #22: result-like numbers typed into a paragraph that uses facts.
+    text = (
+        "{% assert d.offset < 0.29 %}\n"
+        "Coverage was {{ d.cov | dp(1) }}%, an offset of about 0.29 percentage points. "
+        "Detection was full by 0.4% on 2 panels in Figure 3 (cdot 0.2.37, `x = 1.5`, "
+        "[@Hart2020], https://doi.org/10.1093/x) at 1,000x, nominal 95% and p < 0.05.\n"
+    )
+    found = [f.detail for f in lint_text(text, "x.md", numbers=True, allowed_numbers=["95%", "0.05"])
+             if f.kind == "number"]
+    assert found == [
+        "hand-typed number '0.29 percentage points' (an assert compares a fact with this same literal)",
+        "hand-typed number '0.4%'",
+        "hand-typed number '1,000x'",
+    ]
+    numbers = lambda t, **kw: [f for f in lint_text(t, "x.md", **kw) if f.kind == "number"]
+    assert numbers(text) == []                                  # opt-in
+    assert numbers("Prose 0.4% only.\n", numbers=True) == []    # no facts in paragraph
+    assert numbers(text + "{# lint-ok: design #}\n", numbers=True) == []
