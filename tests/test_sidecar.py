@@ -300,3 +300,11 @@ def test_extract_mimics_whitespace_control(tmp_path):
     rendered = env.from_string(md.read_text()).render(**ctx)
     write(extract(md, tmp_path, env, ctx), md)
     assert env.from_string(md.read_text()).render(**ctx) == rendered
+
+
+def test_quote_with_a_citation_matches_the_blanked_sentence():
+    # Issue #53: lint blanks citations, so a quote written with one still matches.
+    masked = "Mutalyzer            , over their \x000\x00 cases."
+    assert find("Mutalyzer [@Lefter2021], over their", masked)
+    assert find("[@Lefter2021], over their", masked)
+    assert find("over their [@a; @b] …", masked)

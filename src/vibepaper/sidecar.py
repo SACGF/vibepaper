@@ -16,7 +16,7 @@ keep its checks in ``paper/results.claims.toml``::
     assert = "r.a_n + r.b_n == r.total_n"
 
 A ``quote`` is matched against the *source* of one sentence of the section,
-ignoring case, ``*`` emphasis and line wrapping. ``…`` (or ``...``, or a
+ignoring case, ``*`` emphasis, citations and line wrapping. ``…`` (or ``...``, or a
 ``{{ ... }}``) in a quote matches anything, so a quote need not spell out the
 facts: "reached … per second". It must match exactly one sentence. A
 ``[[claim]]`` covers the claim words inside the quoted span, an ``[[ok]]``
@@ -38,6 +38,7 @@ from jinja2 import UndefinedError
 
 from .assertions import FactAssertionError, collect_failures
 from .errors import ConfigError
+from .lint import _CITATION_RE
 
 SUFFIX = ".claims.toml"
 KINDS = ("claim", "ok", "check")
@@ -171,7 +172,9 @@ _CLOSE = set(",.;:!?)]")
 
 
 def _squeeze(text: str) -> str:
-    """A quote's text spaced as :func:`_normalise` spaces a sentence."""
+    """A quote's text spaced as :func:`_normalise` spaces a sentence.
+    Citations are dropped, as lint blanks them in the sentence."""
+    text = _CITATION_RE.sub(" ", text)
     text = " ".join(text.replace("*", "").lower().split())
     return re.sub(r"(?<=[(\[]) | (?=[,.;:!?)\]])", "", text)
 
