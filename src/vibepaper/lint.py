@@ -1,9 +1,11 @@
 """``vibepaper lint``: find claim words beside facts that nothing checks.
 
 A sentence is flagged when it contains a ``{{ fact }}`` reference and a claim
-word (see :mod:`vibepaper.claims`), and nothing covers it: no word filter
-(``approx``, ``within_pct``, ``fold``, ...) on one of its facts, and no
-``{% assert %}`` in the paragraph that reads one of its facts. The output is a to-do
+word (see :mod:`vibepaper.claims`) that nothing covers: no word filter
+(``approx``, ``within_pct``, ``fold``, ...) on a fact the word is about, and no
+``{% assert %}`` in the paragraph that reads one. A word is about the facts in
+its clause, else the nearest fact; a word quoted in an assert's message is
+covered by that assert (issue #33). The output is a to-do
 list: convert the wording to a word filter, pin it with an assert, or mark the
 sentence ``{# lint-ok: reason #}`` when the word is a true hedge.
 
@@ -27,7 +29,7 @@ from pathlib import Path
 from jinja2 import Environment, nodes
 
 from .assertions import AssertExtension, _collect_refs
-from .claims import TOTALITY_WORDS, claim_words
+from .claims import CLAIM_RE, TOTALITY_WORDS, claim_words
 from .facts import fact_type
 from .provenance import mixed_versions
 from .words import WORD_FILTER_NAMES
@@ -61,6 +63,9 @@ _NOT_PROSE_RE = re.compile(
     r"|<?\w+://\S+"                 # URL
     r"|\b10\.\d{4,}/\S+"            # DOI
 )
+_FENCED_CODE_RE = re.compile(r"^[ \t]*(```|~~~).*?^[ \t]*\1[^\n]*$", re.DOTALL | re.MULTILINE)
+_FRONT_MATTER_RE = re.compile(r"\A---[ \t]*\n.*?^(---|\.\.\.)[ \t]*$", re.DOTALL | re.MULTILINE)
+_HEADING_RE = re.compile(r"(?m)^[ \t]*#{1,6}[ \t].*$")
 _ROUNDED_TOTAL_RE = re.compile(r"^\s*(100(\.0+)?|0\.0+)\s*%?\s*$")
 _FACT = "\x00{}\x00"
 
@@ -225,8 +230,9 @@ def lint_text(
     used: set | None = None,
 ) -> list[Finding]:
     """Lint one template source. ``env`` and ``context`` enable the rounding
-    check. ``numbers`` also flags result-like numbers typed into the prose of a
-    paragraph that uses facts, except those in ``allowed_numbers`` (issue #22).
+    check. ``numbers`` also flags result-like numbers typed into prose and
+    tables, except those in ``allowed_numbers`` (issues #22, #36). Headings,
+    code and YAML front matter are skipped.
     The keys of the lint-oks that accept something are added to ``used``."""
     used = set() if used is None else used
     allowed = {_normalise_number(a) for a in allowed_numbers}
@@ -234,16 +240,23 @@ def lint_text(
     text = _blank_out(text, _HTML_COMMENT_RE)
     findings: list[Finding] = []
 
+    text = _blank_out(text, _FENCED_CODE_RE)
+    text = _blank_out(text, _FRONT_MATTER_RE)
     for start, para in _paragraphs(text):
-        if _is_table(para) or "{{" not in para:
-            continue
+        # Every paragraph and table is checked for hand-typed numbers: one
+        # that was never converted, with no {{ fact }} at all, is the most
+        # likely to be stale (issue #36). Claim words need a fact.
+        table = _is_table(para)
         # lint-ok accepts the claim words only; the rounding check still runs,
         # since a hedge accepted for one sentence says nothing about a rounded
         # "every" in another (issue #17).
         asserted: set[str] = set()
         literals: set[float] = set()
+        quoted: list[tuple[set[str], set[str]]] = []   # (facts read, words quoted)
         for tag in _ASSERT_TAG_RE.findall(para):
-            asserted |= _refs(tag)
+            refs = _refs(tag)
+            asserted |= refs
+            quoted.append((refs, set(claim_words(" ".join(_quoted_wording(tag))))))
             if numbers:
                 literals |= _assert_literals(tag)
 
@@ -257,7 +270,8 @@ def lint_text(
         oks = _lint_oks(masked, start)
         masked = _blank_out(masked, _STMT_RE)
         masked = _blank_out(masked, _COMMENT_RE)
-        sentences = _SENTENCE_SPLIT_RE.split(masked)
+        # A table is checked row by row, prose sentence by sentence.
+        sentences = masked.split("\n") if table else _SENTENCE_SPLIT_RE.split(masked)
         starts, pos = [], 0
         for sentence in sentences:
             starts.append(masked.index(sentence, pos))
@@ -271,22 +285,29 @@ def lint_text(
             original = re.sub(r"\x00(\d+)\x00", lambda m: "{{" + exprs[int(m.group(1))] + "}}", sentence)
             # Run without --numbers too, so a lint-ok kept for a number isn't
             # reported as accepting nothing.
-            for token, detail in _hand_typed_numbers(prose, allowed, literals):
+            for token, detail in _hand_typed_numbers(_HEADING_RE.sub(" ", prose), allowed, literals):
                 if not accept.accept(n, token) and numbers:
                     findings.append(Finding(filename, line, "number", original, detail=detail))
-            if not ids:
+            if table or not ids:
                 continue
             words = claim_words(prose)
 
-            # Coverage is per sentence (issue #17): a word filter covers the
-            # sentence it is in, and an assert covers each sentence that uses
-            # a fact the assert reads.
-            facts = set().union(*(_refs("{{" + exprs[i] + "}}") for i in ids))
-            covered = (
-                any(_WORD_FILTER_RE.search(exprs[i]) for i in ids)
-                or bool(facts & asserted)
-            )
-            unaccepted = [] if covered else [w for w in words if not accept.accept(n, w)]
+            # Coverage is per claim word (issues #17, #33): a word is covered
+            # when a fact it is about has a word filter or is read by an
+            # assert in the paragraph. The facts a word is about are those in
+            # its clause, or the nearest one when its clause has none. A word
+            # quoted in the message of an assert that reads one of the
+            # sentence's facts is covered wherever it sits.
+            refs = {i: _refs("{{" + exprs[i] + "}}") for i in ids}
+            fact_ok = {i: bool(_WORD_FILTER_RE.search(exprs[i]) or refs[i] & asserted) for i in ids}
+            facts = set().union(*refs.values())
+            pinned = set().union(set(), *(w for r, w in quoted if r & facts))
+            uncovered = []
+            for word, about in _claims_and_facts(sentence):
+                if word in pinned or any(fact_ok[i] for i in about) or word in uncovered:
+                    continue
+                uncovered.append(word)
+            unaccepted = [w for w in uncovered if not accept.accept(n, w)]
             if unaccepted:
                 findings.append(Finding(filename, line, "unchecked", original, unaccepted))
 
@@ -296,6 +317,49 @@ def lint_text(
                     if detail:
                         findings.append(Finding(filename, line, "rounding", original, words, detail))
     return findings
+
+
+_FACT_ID_RE = re.compile(r"\x00(\d+)\x00")
+# Clause boundaries for deciding which facts a claim word is about (issue #33).
+_CLAUSE_RE = re.compile(r"[;:()\[\]—–]|,(?!\d{3})|\s-\s")
+_QUOTED_RE = re.compile(r"'([^']+)'|\u2018([^\u2019]+)\u2019|\u201c([^\u201d]+)\u201d|\\?\"([^\"]+)\\?\"")
+
+
+def _claims_and_facts(sentence: str) -> list[tuple[str, list[int]]]:
+    """Each claim word in a masked sentence with the facts it is about: the
+    fact ids in its clause, or else the nearest fact(s) in the sentence."""
+    # Same-length masking, so offsets line up with the sentence.
+    prose = _FACT_ID_RE.sub(lambda m: " " * len(m.group(0)), sentence)
+    facts = [(m.start(), m.end(), int(m.group(1))) for m in _FACT_ID_RE.finditer(sentence)]
+    bounds = [m.start() for m in _CLAUSE_RE.finditer(prose)]
+
+    def clause(pos: int) -> int:
+        return sum(b < pos for b in bounds)
+
+    out = []
+    for m in CLAIM_RE.finditer(prose):
+        word = " ".join(m.group(0).lower().split())
+        about = [i for start, _, i in facts if clause(start) == clause(m.start())]
+        if not about and facts:
+            dist = {i: max(start - m.end(), m.start() - end, 0) for start, end, i in facts}
+            near = min(dist.values())
+            about = [i for i, d in dist.items() if d == near]
+        out.append((word, about))
+    return out
+
+
+def _quoted_wording(tag: str) -> list[str]:
+    """The quoted parts of an assert's message, e.g. 'with zero regressions'
+    in ``{% assert x == 0, "'with zero regressions'" %}``: the wording the
+    assert pins (issue #33)."""
+    try:
+        call = next(_PARSE_ENV.parse(tag).find_all(nodes.CallBlock)).call
+    except Exception:
+        return []
+    if len(call.args) < 2 or not isinstance(call.args[1], nodes.Const) \
+            or not isinstance(call.args[1].value, str):
+        return []
+    return [next(g for g in m.groups() if g) for m in _QUOTED_RE.finditer(call.args[1].value)]
 
 
 def _rounding_issue(expr: str, env, context: dict) -> str | None:
@@ -559,7 +623,7 @@ def format_findings(findings: list[Finding]) -> str:
         summary.append(f"{len(typed)} percent(s) may print at the wrong magnitude")
     numbers = [f for f in findings if f.kind == "number"]
     if numbers:
-        summary.append(f"{len(numbers)} hand-typed number(s) in paragraphs that use facts")
+        summary.append(f"{len(numbers)} hand-typed number(s)")
     stale = [f for f in findings if f.kind == "lint-ok"]
     if stale:
         summary.append(f"{len(stale)} lint-ok(s) accept nothing")

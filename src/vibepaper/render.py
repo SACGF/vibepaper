@@ -26,7 +26,7 @@ from jinja2.ext import Extension
 
 from .assertions import AssertExtension, FactAssertionError, collect_failures
 from .errors import ConfigError
-from .facts import FILTER_REFUSES, FactTypeError, check_filter, pct as filter_pct, typed, untyped
+from .facts import FILTER_REFUSES, FactTypeError, check_filter, keep_type, pct as filter_pct, typed, untyped
 from .provenance import KEY as PROVENANCE_KEY, read_provenance
 from .tolerances import claim_tests
 from .words import DEFAULT_SPELL_OUT_UP_TO, FILTERS as WORD_FILTERS
@@ -36,9 +36,10 @@ log = logging.getLogger(__name__)
 # Regexes that indicate a render problem in the output file.
 # Use word boundaries so "nan" doesn't match "annotated", "None" doesn't
 # match prose like "None of the…" — only standalone tokens flag.
+# "undefined" is not scanned for: StrictUndefined already fails the build on an
+# undefined fact, and the word is ordinary English (issue #37).
 _SANITY_RE = re.compile(
     r"\bnan\b"            # pandas NaN rendered as "nan"
-    r"|\bundefined\b"     # Jinja undefined leak
     r"|\{\{"              # unresolved template tag
 )
 
@@ -85,7 +86,11 @@ def load_facts(facts_dir: Path) -> dict:
         if list(df.columns[:2]) == ["field", "value"]:
             # Vertical format: field,value rows. Each cell is converted on its
             # own, so an integer stays an int beside decimals (issue #32).
-            values = pd.read_csv(csv_path, dtype=str)["value"].map(untyped)
+            # A plain list, not Series.map: map infers one dtype for the
+            # results and upcasts ints to float when all cells are numeric
+            # (issue #39).
+            raw = pd.read_csv(csv_path, dtype=str)
+            values = [untyped(v) for v in raw["value"].tolist()]
             context[csv_path.stem] = dict(zip(df["field"], values))
             if len(df.columns) > 2 and df.columns[2] == "type":
                 context[csv_path.stem].update(_typed_rows(csv_path))
@@ -165,15 +170,28 @@ class WholeLineCommentExtension(Extension):
 
     The newline is moved inside the comment rather than deleted, so line
     numbers in later error messages don't shift.
+
+    A whole-line ``{#- ... #}`` (the usual workaround for #23 before 0.10) is
+    treated as the plain form: its ``-`` would strip the newline before it as
+    well, gluing the lines around it together (issue #34).
     """
+
+    @staticmethod
+    def _sub(text: str) -> str:
+        def repl(m):
+            body = m.group(1)
+            if body.startswith("{#-"):
+                body = "{# " + body[3:]     # same length, so columns hold
+            return body + "\n#}"
+        return _WHOLE_LINE_COMMENT_RE.sub(repl, text)
 
     def preprocess(self, source, name, filename=None):
         out, pos = [], 0
         for m in _RAW_BLOCK_RE.finditer(source):
-            out.append(_WHOLE_LINE_COMMENT_RE.sub(r"\1\n#}", source[pos:m.start()]))
+            out.append(self._sub(source[pos:m.start()]))
             out.append(m.group(0))
             pos = m.end()
-        out.append(_WHOLE_LINE_COMMENT_RE.sub(r"\1\n#}", source[pos:]))
+        out.append(self._sub(source[pos:]))
         return "".join(out)
 
 
@@ -249,6 +267,10 @@ def make_jinja_env(
         if name in ("approx", "orders_of_magnitude", "number_word"):
             fn = functools.partial(fn, spell_out_up_to=spell_out_up_to)
         env.filters[name] = fn
+
+    # abs and round of a typed fact keep its type, so | abs | pct works (issue #35).
+    for name in ("abs", "round"):
+        env.filters[name] = keep_type(env.filters[name])
 
     # Typed facts (issue #12): refuse a type the filter would mis-scale.
     for name in FILTER_REFUSES:

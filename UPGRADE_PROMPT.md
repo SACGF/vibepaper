@@ -65,6 +65,31 @@ vibepaper diff --against <branch point>   # facts: only the changes you meant (t
 
 ---
 
+## 0.11 → next release
+
+### Expected render changes (Step 2)
+
+- An untyped integer in a vertical facts CSV whose values are **all** numeric now prints as `37`, not `37.0` ([#39](https://github.com/SACGF/vibepaper/issues/39); 0.11's fix for #32 only worked when the file also had a text value). Check each such change is a fix ("All 37 survive", "on chromosome 22"), not a sentence that relied on the `.0`.
+- A `{#- comment #}` on a line of its own no longer glues the lines around it together ([#34](https://github.com/SACGF/vibepaper/issues/34)): under 0.10 and 0.11, `BRCA1,` / `{#- lint-ok: ... #}` / `which rose` rendered as `BRCA1,which rose`. Expect those words to come apart again in `vibepaper diff`. The `-` is no longer needed on a whole-line comment; remove it (`grep -n '^\s*{#-' paper/*.md`), but it does no harm.
+
+### Behaviour changes (Step 3)
+
+- **An assert or word filter covers only the claim words about the facts it reads** ([#33](https://github.com/SACGF/vibepaper/issues/33)), not every claim word in a sentence that uses one of its facts. A claim word is about the facts in its clause (split at commas, semicolons, colons, dashes and parentheses), or the nearest fact when its clause has none. Expect new `vibepaper lint` findings in sentences that make two claims about different facts, where one assert or word filter (`number_word`, `approx`, ...) covered both. For each, first check the claim is true with the current facts. Then:
+  - add a second assert for it; or
+  - if the existing assert is really about that word too, quote the word in its message: a claim word inside quotes in an assert's message (`{% assert c.regressions == 0, "'with zero regressions'" %}`) is covered in any sentence that uses a fact the assert reads. Use this also when the clause heuristic picks the wrong fact; or
+  - if it is a hedge, add `{# lint-ok(word): reason #}` or a lint-ok in the sentence.
+- **Restore hedges deleted because an assert covered them.** Under 0.11, lint reported a `lint-ok` as "accepts nothing" when an unrelated assert covered its sentence, and the upgrade prompt said to delete it. Those words come back as findings now, and their reason is in git history. Find them with `git log -p -S "lint-ok" -- '*.md'`: look for lint-oks removed in the commit that added an assert to the same sentence, and restore the reason instead of writing a new one.
+- **`vibepaper lint --numbers` checks every paragraph and table** ([#36](https://github.com/SACGF/vibepaper/issues/36)), not only paragraphs that already use a `{{ fact }}`. Headings, fenced code and YAML front matter are skipped. If the paper runs `--numbers`, expect new findings in paragraphs that were never converted, tables and figure captions. These are the paragraphs most likely to hold stale results: check each number against the current facts, report any that are wrong, and make it a fact. A number quoted from the literature or a design value gets `[lint] allowed_numbers` in `paper.toml` or a lint-ok (`{# lint-ok-paragraph: quotes Hart 2020 #}` for a paragraph that is all citations). A lint-ok in a paragraph with no facts that accepts a number is no longer reported as accepting nothing.
+- **The build no longer warns "found 'undefined'"** for the English word ([#37](https://github.com/SACGF/vibepaper/issues/37)). An undefined fact already fails the build. Nothing to do; drop any note telling people to ignore that warning.
+
+### New features (Step 4)
+
+| Feature | Find candidates | Adopt |
+|---|---|---|
+| **`abs` and `round` keep a fact's type** ([#35](https://github.com/SACGF/vibepaper/issues/35)) | `grep -nwE 'abs\|round' paper/*.md`, then look for a typed percent or fraction formatted as `{{ x \| abs \| dp(0) }}%` because `\| abs \| pct` failed in 0.11 | `{{ x.delta_pct \| abs \| pct(0) }}`. The render is the same; `pct` then checks the type |
+| **Quoted wording in an assert message covers that claim word** ([#33](https://github.com/SACGF/vibepaper/issues/33)) | `grep -n "{% assert" paper/*.md` for asserts in sentences with several claim words | Make the message quote the wording the assert pins (`"'dominated by indel'"`), which most asserts already do. Check the words each assert's message quotes match what it actually checks |
+| **Provenance versions belong under `tools`** ([#38](https://github.com/SACGF/vibepaper/issues/38), README fix) | `grep -rn "write_provenance(" .` for calls passing a version as a keyword (`cdot_data="0.2.36"`), which is stored at the top level, so lint's mixed-version check can't see it | `tools={"cdot": None, "cdot_data": "0.2.36"}`, then `{{ ns._prov.tools.cdot_data }}` in prose. Re-run the producer or edit the sidecar to match |
+
 ## 0.10 → 0.11
 
 ### Expected render changes (Step 2)
@@ -73,7 +98,7 @@ vibepaper diff --against <branch point>   # facts: only the changes you meant (t
 
 ### Behaviour changes (Step 3)
 
-- **`{# lint-ok #}` accepts only its own sentence** ([#31](https://github.com/SACGF/vibepaper/issues/31)), not the whole paragraph. Expect new findings in the other sentences of paragraphs that have a lint-ok, and notes for lint-oks that now accept nothing. For each lint-ok: move it to the end of the sentence it is about, or name the word (`{# lint-ok(every): reason #}`) when the paragraph has several sentences that use it. Use `{# lint-ok-paragraph: reason #}` only for a paragraph that really is all quoted or deliberate. Then resolve each new finding in the other sentences as Step 3 says, checking first whether it is true. Delete a lint-ok lint reports as accepting nothing.
+- **`{# lint-ok #}` accepts only its own sentence** ([#31](https://github.com/SACGF/vibepaper/issues/31)), not the whole paragraph. Expect new findings in the other sentences of paragraphs that have a lint-ok, and notes for lint-oks that now accept nothing. For each lint-ok: move it to the end of the sentence it is about, or name the word (`{# lint-ok(every): reason #}`) when the paragraph has several sentences that use it. Use `{# lint-ok-paragraph: reason #}` only for a paragraph that really is all quoted or deliberate. Then resolve each new finding in the other sentences as Step 3 says, checking first whether it is true. For a lint-ok lint reports as accepting nothing, first check *why*: if the hedged word was edited out, delete it; if an assert now covers the sentence, keep the reason in the commit message (from 0.12 it may be needed again, see below).
 
 ## 0.9 → 0.10
 

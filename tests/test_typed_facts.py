@@ -175,3 +175,24 @@ def test_untyped_vertical_cells_convert_one_by_one(tmp_path):
     assert v["x"] == 0.15822784810126583 and v["name"] == "cdot"
     assert v["blank"] != v["blank"]          # NaN, as before
     assert ctx["h"]["x"] == 0.15822784810126583
+
+
+def test_untyped_ints_stay_ints_in_an_all_numeric_vertical_file(tmp_path):
+    # Issue #39: Series.map upcast the ints to float when every cell in the
+    # file was numeric (the #32 test had a text cell, which forced object dtype).
+    from vibepaper.render import load_facts
+    (tmp_path / "v.csv").write_text("field,value\nn,37\nx,97.3\nchrom,22\n")
+    v = load_facts(tmp_path)["v"]
+    assert type(v["n"]) is int and type(v["chrom"]) is int
+    assert v["x"] == 97.3
+
+
+def test_abs_and_round_keep_the_type(render):
+    # Issue #35: Jinja's abs returned a plain float, so | abs | pct failed.
+    from vibepaper.facts import Count, Fraction, Percent, Ratio
+    x = {"delta": Percent(-32.7), "f": Fraction(0.1234), "n": Count(3), "r": Ratio(0.3)}
+    assert render("{{ x.delta | abs | pct(0) }}", x=x) == "33%"
+    assert render("{{ x.f | round(2) | pct(0) }}", x=x) == "12%"
+    assert render("{{ x.n | abs | commas }}", x=x) == "3"
+    assert render("{{ x.r | round }}", x=x) == "0.0"       # out of range: untyped
+    assert render("{{ -3.5 | abs }}") == "3.5"

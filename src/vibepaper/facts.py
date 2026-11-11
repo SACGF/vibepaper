@@ -27,7 +27,9 @@ a type refuse it, e.g. ``int`` on a fraction or ``fold`` on a percent.
 
 Loaded values are ``float``/``int``/``str`` subclasses with a ``fact_type``
 attribute, so comparisons and arithmetic in templates work as before.
-Arithmetic returns a plain number, which drops the type.
+Arithmetic returns a plain number, which drops the type. ``abs`` and
+``round`` keep it (a magnitude or rounding of a percent is still a percent,
+issue #35), as do ``min`` and ``max``, which return one of their inputs.
 
 Producers write typed CSVs with :func:`write_facts`::
 
@@ -166,6 +168,24 @@ FILTER_REFUSES = {
     "dp": {"text": _NUMERIC},
     "fmt": {"text": _NUMERIC},
 }
+
+
+def keep_type(fn):
+    """Wrap a sign- and scale-neutral filter (``abs``, ``round``) so a typed
+    fact keeps its type (issue #35). If the result is outside the type's range
+    (a ratio rounded to 0), it is returned untyped, as arithmetic would be."""
+    def wrapper(value, *args, **kwargs):
+        result = fn(value, *args, **kwargs)
+        cls = TYPES.get(fact_type(value))
+        if cls is None or cls is Text:
+            return result
+        try:
+            return cls(result)
+        except FactTypeError:
+            return result
+    wrapper.__name__ = getattr(fn, "__name__", "filter")
+    wrapper.__doc__ = fn.__doc__
+    return wrapper
 
 
 def check_filter(name: str, value) -> None:

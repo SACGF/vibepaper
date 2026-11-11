@@ -139,9 +139,10 @@ def main():
         description=(
             "List every sentence that references a {{ fact }} and contains a claim\n"
             "word (rises, falls, within, nearly, all, every, dominated, ...) that\n"
-            "nothing covers: no word filter (approx, within_pct, fold, ...) on one of\n"
-            "its facts, and no {% assert %} in the paragraph that reads one of its\n"
-            "facts. Add {# lint-ok: reason #} to a sentence to accept its\n"
+            "nothing covers: no word filter (approx, within_pct, fold, ...) on a fact\n"
+            "the word is about (one in its clause, else the nearest), and no\n"
+            "{% assert %} in the paragraph that reads one or quotes the word in its\n"
+            "message. Add {# lint-ok: reason #} to a sentence to accept its\n"
             "wording as-is ({# lint-ok(word): ... #} accepts one word in the\n"
             "paragraph, {# lint-ok-paragraph: ... #} the whole paragraph).\n\n"
             "When facts are available, also flags facts that round to 100.0 / 0.0\n"
@@ -165,7 +166,7 @@ def main():
     lint_parser.add_argument(
         "--numbers", action="store_true",
         help="Also flag result-like numbers (decimals, 12%%, 0.3 pp, 4-fold, 100x) typed "
-             "into paragraphs that use facts. Accept design values with [lint] "
+             "into prose and tables (headings and code are skipped). Accept design values with [lint] "
              "allowed_numbers in paper.toml or {# lint-ok #}.",
     )
     lint_parser.add_argument(

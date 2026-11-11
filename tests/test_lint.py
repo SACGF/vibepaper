@@ -47,6 +47,33 @@ def test_coverage_is_per_sentence():
     assert f.words == ["entirely"]
 
 
+def test_coverage_is_per_claim_word():
+    # Issue #33: an assert (or word filter) covered every claim word in a
+    # sentence that used one of its facts, even words about other facts.
+    text = (
+        "{{ c.after_pct | pct(1) }} ({{ c.rescued | commas }}\n"
+        "strings rescued, about {{ c.rescued_share_pct | pct(0) }} of those that\n"
+        "{% assert c.regressions == 0, \"'with zero regressions'\" %}\n"
+        "failed as-submitted) with {{ c.regressions | number_word }} regressions.\n"
+    )
+    [f] = lint_text(text, "x.md")
+    assert f.words == ["about"]
+    # A lint-ok for the word is used again, not reported as accepting nothing.
+    used = set()
+    assert lint_text(text.replace("about {{", "about {# lint-ok: rounded share #} {{"),
+                     "x.md", used=used) == []
+    assert used
+    # Both facts of "A versus B" are in the word's clause.
+    assert lint_text("{% assert a.x > a.y %}\nHigher in {{ a.x }} versus {{ a.y }}.\n", "x.md") == []
+    # A clause with no fact takes the nearest one.
+    assert lint_text("{% assert a.n > 5 %}\nMost variants ({{ a.n }}) were kept.\n", "x.md") == []
+    two = "Higher in {{ a.x }} than {{ a.y }}, and only {{ a.z }} failed.\n"
+    [f] = lint_text("{% assert a.x > a.y, 'x first' %}\n" + two, "x.md")
+    assert f.words == ["only"]
+    # A claim word quoted in the assert's message is pinned by it.
+    assert lint_text("{% assert a.x > a.y and a.z < 3, \"'only' a few\" %}\n" + two, "x.md") == []
+
+
 def test_assert_separated_by_blank_line_does_not_cover():
     text = "{% assert r.a > r.b %}\n\nDominated by {{ r.a }} then {{ r.b }}.\n"
     assert len(lint_text(text, "x.md")) == 1
@@ -145,13 +172,29 @@ def test_hand_typed_numbers():
     ]
     numbers = lambda t, **kw: [f for f in lint_text(t, "x.md", **kw) if f.kind == "number"]
     assert numbers(text) == []                                  # opt-in
-    assert numbers("Prose 0.4% only.\n", numbers=True) == []    # no facts in paragraph
     assert numbers(text + "{# lint-ok-paragraph: design #}\n", numbers=True) == []
     # A plain lint-ok accepts only its own (here the last) sentence (issue #31).
     [f] = numbers(text + "{# lint-ok: design #}\n", numbers=True)
     assert "0.29" in f.detail
     assert numbers(text + "{# lint-ok(0.29 percentage points, 0.4%, 1,000x): design #}\n",
                    numbers=True, allowed_numbers=["95%", "0.05"]) == []
+
+
+def test_hand_typed_numbers_in_paragraphs_and_tables_without_facts():
+    # Issue #36: a paragraph never converted to facts is the likeliest to be stale.
+    numbers = lambda t, **kw: [f.detail for f in lint_text(t, "x.md", numbers=True, **kw)
+                               if f.kind == "number"]
+    assert numbers("The PICK rate was 42.3% and HIGH calls rose 15%.\n") == [
+        "hand-typed number '42.3%'", "hand-typed number '15%'"]
+    table = "| Set | Rate |\n|---|---|\n| A | 4.3% |\n| B | {{ t.b | dp(1) }}% |\n"
+    [f] = [f for f in lint_text(table, "x.md", numbers=True) if f.kind == "number"]
+    assert f.line == 3 and "4.3%" in f.detail
+    # Headings, fenced code and front matter are not prose.
+    skipped = "---\nversion: 1.5\n---\n\n## 2.1 Methods\n\n```\nx = 0.5\n```\n"
+    assert numbers(skipped) == []
+    used = set()
+    assert numbers("Cited 12.5% {# lint-ok: from Hart 2020 #}.\n", used=used) == []
+    assert used
 
 
 def test_lint_ok_is_scoped_to_its_sentence():

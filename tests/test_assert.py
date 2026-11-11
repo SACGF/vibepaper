@@ -23,6 +23,9 @@ def test_whole_line_comment_keeps_paragraph_whole_and_line_numbers(render):
     # line, splitting it in two. Line numbers after it must not shift.
     assert render("One.\n  {# lint-ok: hedge #}  \nTwo.\n") == "One.\nTwo.\n"
     assert render("One.\n{# keep -#}\n\nTwo.\n") == "One.\nTwo.\n"
+    # Issue #34: {#- on its own line used to strip the newline before it too.
+    assert render("BRCA1,\n{#- lint-ok: hedge #}\nwhich rose.\n") == "BRCA1,\nwhich rose.\n"
+    assert render("A,\n  {#- x #}\nB.\n") == "A,\nB.\n"
     with pytest.raises(FactAssertionError, match="line 4"):
         render("a\n{# multi\nline #}\n{% assert false, 'x' %}\n")
 

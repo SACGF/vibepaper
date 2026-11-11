@@ -317,7 +317,7 @@ vibepaper lint            # sections from paper.toml
 vibepaper lint --check    # exit 1 if anything is flagged (CI)
 ```
 
-Lint lists every sentence that references a `{{ fact }}` and contains a claim word (rises, falls, higher, under, within, nearly, roughly, about, over, all, every, none, only, dominated, largest, most, doubled, -fold, versus, …), where nothing covers that sentence. A word filter (including `fold`) covers the sentence it is in. An `{% assert %}` covers each sentence in its paragraph that uses a fact the assert reads, so an assert about `r.indel_count` does not vouch for a sentence that shows only `r.total`:
+Lint lists every sentence that references a `{{ fact }}` and contains a claim word (rises, falls, higher, under, within, nearly, roughly, about, over, all, every, none, only, dominated, largest, most, doubled, -fold, versus, …), where nothing covers that word. Coverage is per claim word: a word is about the facts in its clause (split at commas, semicolons, colons, dashes and parentheses), or the nearest fact when its clause has none. It is covered when one of those facts has a word filter (including `fold`), or is read by an `{% assert %}` in the paragraph. So an assert about `r.indel_count` does not vouch for a sentence that shows only `r.total`, and an assert for "zero regressions" does not vouch for an "about" beside another fact in the same sentence. "A versus B" sits in one clause with both facts, so an assert comparing them covers it. When the heuristic picks the wrong fact, quote the wording in the assert's message: a claim word inside quotes (`{% assert c.regressions == 0, "'with zero regressions'" %}`) is covered in any sentence that uses a fact the assert reads:
 
 ```
 paper/results.md:3: roughly, orders of magnitude, faster
@@ -337,7 +337,7 @@ The second kind of finding needs facts, and is reported even in covered paragrap
 unused_ok = ["bench.raw_*", "clinvar_residual_positions.*"]
 ```
 
-`vibepaper lint --numbers` also flags numbers typed into the prose of a paragraph that uses facts, when they look like results: decimals, and numbers with `%`, `pp`, `percent`, `-fold` or `x`. A result copied by hand from an old run looks the same as a fact, and lint can't otherwise see it. Plain integers ("Figure 2", "25 of 25") and version strings are not flagged. Most hits will be design values (titration levels, the nominal 95%, p < 0.05); list those once in `paper.toml`, or accept a paragraph with `{# lint-ok: reason #}`. Anything left is probably a result that should be a fact. When an assert in the paragraph compares a fact with the same literal (`{% assert x.offset < 0.29 %}` next to "about 0.29 percentage points"), the finding says so: that claim is checked against a number nobody re-measured.
+`vibepaper lint --numbers` also flags numbers typed into prose and tables, when they look like results: decimals, and numbers with `%`, `pp`, `percent`, `-fold` or `x`. A result copied by hand from an old run looks the same as a fact, and lint can't otherwise see it. Every paragraph is checked, including ones with no `{{ fact }}` at all: a paragraph that was never converted is the one most likely to hold stale results. Plain integers ("Figure 2", "25 of 25"), version strings, headings, code and YAML front matter are not flagged. Most hits will be design values (titration levels, the nominal 95%, p < 0.05); list those once in `paper.toml`, or accept a paragraph with `{# lint-ok: reason #}`. Anything left is probably a result that should be a fact. When an assert in the paragraph compares a fact with the same literal (`{% assert x.offset < 0.29 %}` next to "about 0.29 percentage points"), the finding says so: that claim is checked against a number nobody re-measured.
 
 ```toml
 [lint]
@@ -357,7 +357,7 @@ Two other forms:
 - `{# lint-ok(every, most): reason #}` accepts only those words, anywhere in the paragraph. It also takes a hand-typed number (`lint-ok(0.05)`) or `%` for a percent that may print at the wrong magnitude.
 - `{# lint-ok-paragraph: reason #}` accepts the whole paragraph, e.g. one that quotes another paper's figures.
 
-A lint-ok accepts claim words, hand-typed numbers, percent-magnitude findings and a deliberate mix of tool versions (any lint-ok in the paragraph, see [provenance](#provenance-which-versions-produced-a-facts-file)). A fact that rounds to 100.0 or 0.0 beside "every" or "none" is still flagged. When facts are available, lint also reports a lint-ok that accepts nothing (the hedged word was edited out, or an assert now covers it), so stale ones don't pile up.
+A lint-ok accepts claim words, hand-typed numbers, percent-magnitude findings and a deliberate mix of tool versions (any lint-ok in the paragraph, see [provenance](#provenance-which-versions-produced-a-facts-file)). A fact that rounds to 100.0 or 0.0 beside "every" or "none" is still flagged. When facts are available, lint also reports a lint-ok that accepts nothing (the hedged word was edited out, or an assert now covers it), so stale ones don't pile up. Before deleting one, check why: if an assert now covers the word, the lint-ok's reason may still be worth keeping in the commit message.
 
 ### `vibepaper check`: run the asserts without a build
 
@@ -458,7 +458,7 @@ n_samples,12,
 | `ratio` | e.g. a fold change | value > 0 |
 | `text` | kept exactly as written ("1.10" stays "1.10") | |
 
-A blank type is untyped and behaves as before, so you can type the percentages and p-values first, where the mistakes happen. A value out of its type's range fails the load with the file and line. Filters refuse a type they would mis-scale: `int`, `commas` and `number_word` refuse a fraction or p-value; `fold` and `orders_of_magnitude` want a ratio, not a percent or count; `within_pct` refuses a fraction. Typed values still compare and do arithmetic like numbers, and the result of arithmetic is untyped, so `{{ (rate * 100) | pct }}` is an error.
+A blank type is untyped and behaves as before, so you can type the percentages and p-values first, where the mistakes happen. A value out of its type's range fails the load with the file and line. Filters refuse a type they would mis-scale: `int`, `commas` and `number_word` refuse a fraction or p-value; `fold` and `orders_of_magnitude` want a ratio, not a percent or count; `within_pct` refuses a fraction. Typed values still compare and do arithmetic like numbers, and the result of arithmetic is untyped, so `{{ (rate * 100) | pct }}` is an error. `abs` and `round` keep the type, so a fall shown as a magnitude is `{{ x.delta_pct | abs | pct(0) }}`; `min` and `max` return one of the facts, type included.
 
 `vibepaper lint` flags a percent that would print at the wrong magnitude: `{{ rate | dp(2) }}%` on a fraction, `{{ (share * 100) | dp }}%` on a percent, `{{ x | pct }}%` (a doubled sign), and an untyped value below 1 whose name suggests a fraction (`_rate`, `_frac`, `_share`, ...). `vibepaper diff` reports a type change, such as fraction 0.0153 → percent 1.53, as one change with the types rather than a +9900% jump.
 
@@ -526,12 +526,14 @@ It's loaded as `foo._prov`, so version strings in captions and methods come from
 Table 1. Throughput with cdot {{ benchmark._prov.tools.cdot }} (data release {{ benchmark._prov.tools.cdot_data }}), measured {{ benchmark._prov.date }}.
 ```
 
-Producer scripts can write it with a helper. A list of tool names looks up the installed versions; `command` and `date` default to how the script was run and today:
+Producer scripts can write it with a helper. `tools` maps names to versions, and a `None` version (or a list of names) looks up the installed package; `command` and `date` default to how the script was run and today:
 
 ```python
 from vibepaper.provenance import write_provenance
-write_provenance("output/facts/benchmark.csv", tools=["cdot"], cdot_data="0.2.36")
+write_provenance("output/facts/benchmark.csv", tools={"cdot": None, "cdot_data": "0.2.36"})
 ```
+
+Versions go under `tools`, which is what `{{ ns._prov.tools.x }}` reads and what lint's mixed-version check compares. Other keyword arguments (`write_provenance(csv, tools=["cdot"], genome="GRCh38")`) are stored at the top level, as `{{ ns._prov.genome }}`.
 
 `vibepaper lint` flags a paragraph or table that uses facts from files whose `tools` give different versions of the same tool, which typically happens after a partial re-run. `{# lint-ok: reason #}` accepts a paragraph that compares versions on purpose. `vibepaper diff` (including `--against`) lists provenance changes separately from fact changes.
 
@@ -839,12 +841,12 @@ vibepaper lint [FILE.md ...] [--config FILE] [--facts-dir DIR] [--unused] [--num
 
   List sentences that reference a {{ fact }} and contain a claim word
   (rises, within, nearly, all, every, dominated, ...) that nothing covers: no
-  word filter on one of the sentence's facts, and no {% assert %} in the
-  paragraph that reads one of them. Also lists facts that round to 100.0/0.0
+  word filter on a fact the word is about (in its clause, else the nearest),
+  and no {% assert %} in the paragraph that reads one. Also lists facts that round to 100.0/0.0
   beside "every"/"none". Mark a sentence {# lint-ok: reason #} to accept its
   wording ({# lint-ok(word): ... #} or {# lint-ok-paragraph: ... #} for wider
   scope). --unused also lists facts the paper never references; --numbers
-  flags result-like numbers typed into paragraphs that use facts.
+  flags result-like numbers typed into prose and tables.
 
   vibepaper lint                               # sections from paper.toml
   vibepaper lint --check                       # exit 1 if anything flagged (CI)

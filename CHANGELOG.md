@@ -2,6 +2,25 @@
 
 All notable changes to vibepaper are documented here.
 
+## [Unreleased]
+
+### Added
+
+- **`abs` and `round` keep a typed fact's type** ([#35](https://github.com/SACGF/vibepaper/issues/35)), so a fall shown as a magnitude is `{{ x.delta_pct | abs | pct(0) }}`. In 0.11 Jinja's `abs` returned a plain float and `pct` refused it. A result outside the type's range (a ratio rounded to 0) is untyped, as arithmetic is.
+- **A claim word quoted in an assert's message is covered by that assert** ([#33](https://github.com/SACGF/vibepaper/issues/33)): `{% assert c.regressions == 0, "'with zero regressions'" %}` covers "zero" in any sentence that uses `c.regressions`. Use it when lint's clause heuristic (below) picks the wrong fact.
+
+### Changed
+
+- **An assert or word filter covers only the claim words about the facts it reads** ([#33](https://github.com/SACGF/vibepaper/issues/33)). It used to cover every claim word in a sentence that used one of its facts, so an assert for "zero regressions" also silenced an "about" beside a different fact. A claim word is now about the facts in its clause (split at commas, semicolons, colons, dashes and parentheses), or the nearest fact when its clause has none, so "A versus B" is still covered by an assert comparing them. Expect new findings in sentences that make two claims about different facts; a lint-ok that 0.11 reported as accepting nothing because of such an assert accepts its word again.
+- **`vibepaper lint --numbers` checks every paragraph and table** ([#36](https://github.com/SACGF/vibepaper/issues/36)), not only paragraphs that use a `{{ fact }}`. A paragraph never converted to facts is the one most likely to hold stale results. Headings, fenced code and YAML front matter are skipped. Expect new findings if you run `--numbers`.
+
+### Fixed
+
+- **Untyped integers in an all-numeric vertical facts CSV load as ints** ([#39](https://github.com/SACGF/vibepaper/issues/39)). 0.11's fix for [#32](https://github.com/SACGF/vibepaper/issues/32) went through `Series.map`, which upcast them to float (printing "37.0") unless the file also had a text value.
+- **A `{#- comment #}` on its own line no longer glues the lines around it together** ([#34](https://github.com/SACGF/vibepaper/issues/34), a 0.10 regression): `BRCA1,` / `{#- lint-ok #}` / `which` rendered as "BRCA1,which". A whole-line `{#-` comment is now treated like `{#`; the `-` is no longer needed.
+- **The build no longer warns "found 'undefined'" for the English word** ([#37](https://github.com/SACGF/vibepaper/issues/37)). An undefined fact already fails the build (`StrictUndefined`); the rendered-output check still flags `nan` and unresolved `{{`.
+- README provenance example stored `cdot_data` at the top level of the sidecar, so `{{ benchmark._prov.tools.cdot_data }}` was undefined and lint's mixed-version check couldn't see it ([#38](https://github.com/SACGF/vibepaper/issues/38)). It now passes `tools={"cdot": None, "cdot_data": "0.2.36"}`.
+
 ## [0.11.0] — 2026-11-11
 
 Upgrading from 0.10: give [`UPGRADE_PROMPT.md`](UPGRADE_PROMPT.md) to an agent in the paper's repo, with its "0.10 → 0.11" section. `{# lint-ok #}` now accepts only its own sentence, so expect new `vibepaper lint` findings.

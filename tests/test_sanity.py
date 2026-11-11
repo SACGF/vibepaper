@@ -24,9 +24,11 @@ def test_unresolved_template_tag_is_flagged(tmp_path):
     p = make_file(tmp_path, "value is {{ vep.missing_field }}\n")
     assert sanity_check(p), "unresolved {{ should be flagged"
 
-def test_undefined_word_is_flagged(tmp_path):
-    p = make_file(tmp_path, "the result is undefined\n")
-    assert sanity_check(p), "standalone 'undefined' should be flagged"
+def test_undefined_word_is_not_flagged(tmp_path):
+    # Issue #37: StrictUndefined already fails on an undefined fact, so the
+    # English word is not a render problem.
+    p = make_file(tmp_path, "the measure is undefined for intronic variants\n")
+    assert not sanity_check(p)
 
 
 # --- should not flag (false-positive regression tests) ---

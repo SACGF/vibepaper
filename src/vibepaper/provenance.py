@@ -66,10 +66,12 @@ def write_provenance(
 
     ``tools`` maps names to versions; a list of names (or a ``None`` version)
     looks up the installed package version. ``command`` defaults to how this
-    script was run, ``date`` to today. Extra keyword arguments are stored too::
+    script was run, ``date`` to today. Put versions under ``tools`` so lint's
+    mixed-version check sees them (issue #38). Extra keyword arguments are
+    stored at the top level::
 
-        write_provenance("output/facts/benchmark.csv", tools=["cdot"],
-                         data_release="0.2.36")
+        write_provenance("output/facts/benchmark.csv",
+                         tools={"cdot": None, "cdot_data": "0.2.36"}, genome="GRCh38")
     """
     if isinstance(tools, (list, tuple)):
         tools = {name: None for name in tools}
