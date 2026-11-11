@@ -20,3 +20,12 @@ def test_version_flag_matches_pyproject():
         capture_output=True, text=True, check=True,
     ).stdout
     assert out.strip() == f"vibepaper {expected}"
+
+
+def test_help_lists_subcommands():
+    # argparse %-formats subcommand help= strings; an unescaped % crashes --help.
+    out = subprocess.run(
+        [sys.executable, "-m", "vibepaper", "--help"],
+        capture_output=True, text=True, check=True,
+    ).stdout
+    assert "Evaluate every {% assert %}" in out

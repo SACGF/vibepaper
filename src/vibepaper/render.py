@@ -26,7 +26,7 @@ from jinja2.ext import Extension
 
 from .assertions import AssertExtension, FactAssertionError, collect_failures
 from .errors import ConfigError
-from .facts import FILTER_REFUSES, FactTypeError, check_filter, pct as filter_pct, typed
+from .facts import FILTER_REFUSES, FactTypeError, check_filter, pct as filter_pct, typed, untyped
 from .provenance import KEY as PROVENANCE_KEY, read_provenance
 from .tolerances import claim_tests
 from .words import DEFAULT_SPELL_OUT_UP_TO, FILTERS as WORD_FILTERS
@@ -58,6 +58,12 @@ class AssertionsFailed(TemplateRenderError):
         )
 
 
+# Before pandas 3 the default float parser can lose the last bit
+# (0.15822784810126583 → 0.1582278481012658); pandas 3 is exact by default and
+# deprecates the option. Issue #32.
+_EXACT_FLOATS = {} if int(pd.__version__.split(".")[0]) >= 3 else {"float_precision": "round_trip"}
+
+
 def load_facts(facts_dir: Path) -> dict:
     """Load facts CSVs from facts_dir into a namespace dict.
 
@@ -75,12 +81,11 @@ def load_facts(facts_dir: Path) -> dict:
     """
     context = {}
     for csv_path in sorted(facts_dir.glob("*.csv")):
-        df = pd.read_csv(csv_path)
+        df = pd.read_csv(csv_path, **_EXACT_FLOATS)
         if list(df.columns[:2]) == ["field", "value"]:
-            # Vertical format: field,value rows — coerce numeric strings
-            values = pd.to_numeric(df["value"], errors="coerce").where(
-                lambda s: s.notna(), df["value"]
-            )
+            # Vertical format: field,value rows. Each cell is converted on its
+            # own, so an integer stays an int beside decimals (issue #32).
+            values = pd.read_csv(csv_path, dtype=str)["value"].map(untyped)
             context[csv_path.stem] = dict(zip(df["field"], values))
             if len(df.columns) > 2 and df.columns[2] == "type":
                 context[csv_path.stem].update(_typed_rows(csv_path))

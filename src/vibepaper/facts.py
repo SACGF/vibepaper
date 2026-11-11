@@ -116,6 +116,20 @@ def fact_type(value) -> str | None:
     return getattr(value, "fact_type", None)
 
 
+def untyped(raw):
+    """An untyped CSV cell: an int if it reads as one, else a float, else the
+    string. Each cell is converted on its own, so ``138`` stays an int in a
+    file that also has decimals, and floats are parsed exactly (issue #32)."""
+    if not isinstance(raw, str):
+        return raw              # NaN for an empty cell
+    for kind in (int, float):
+        try:
+            return kind(raw)
+        except ValueError:
+            pass
+    return raw
+
+
 def typed(raw: str, type_name: str):
     """``raw`` (a CSV cell) as a value of ``type_name``. Raises FactTypeError."""
     cls = TYPES.get(type_name)

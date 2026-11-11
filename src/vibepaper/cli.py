@@ -141,8 +141,9 @@ def main():
             "word (rises, falls, within, nearly, all, every, dominated, ...) that\n"
             "nothing covers: no word filter (approx, within_pct, fold, ...) on one of\n"
             "its facts, and no {% assert %} in the paragraph that reads one of its\n"
-            "facts. Add {# lint-ok: reason #} to a paragraph to accept\n"
-            "its wording as-is.\n\n"
+            "facts. Add {# lint-ok: reason #} to a sentence to accept its\n"
+            "wording as-is ({# lint-ok(word): ... #} accepts one word in the\n"
+            "paragraph, {# lint-ok-paragraph: ... #} the whole paragraph).\n\n"
             "When facts are available, also flags facts that round to 100.0 / 0.0\n"
             "beside a totality word ('every', 'none').\n\n"
             "Lints the sections in paper.toml, or the FILE.md arguments."
@@ -180,7 +181,7 @@ def main():
     # -- check --------------------------------------------------------------
     check_parser = subparsers.add_parser(
         "check",
-        help="Evaluate every {% assert %} against the facts that exist, without a build.",
+        help="Evaluate every {%% assert %%} against the facts that exist, without a build.",
         description=(
             "Evaluate every {% assert %} in the sections against the facts that\n"
             "exist now, without rendering the paper. Each is reported as PASS,\n"

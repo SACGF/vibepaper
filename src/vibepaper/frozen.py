@@ -19,7 +19,7 @@ import csv
 from dataclasses import dataclass
 from pathlib import Path
 
-from .facts import TYPES, FactTypeError, fact_type
+from .facts import TYPES, FactTypeError, fact_type, untyped
 
 HEADER = ["fact", "value", "reason"]
 
@@ -33,12 +33,7 @@ class FrozenFact:
 
 def _coerce(text: str):
     """Numeric strings become numbers, as ``load_facts`` does."""
-    for kind in (int, float):
-        try:
-            return kind(text)
-        except ValueError:
-            pass
-    return text
+    return untyped(text)
 
 
 def read_frozen(path: Path) -> list[FrozenFact]:

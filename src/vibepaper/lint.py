@@ -5,7 +5,13 @@ word (see :mod:`vibepaper.claims`), and nothing covers it: no word filter
 (``approx``, ``within_pct``, ``fold``, ...) on one of its facts, and no
 ``{% assert %}`` in the paragraph that reads one of its facts. The output is a to-do
 list: convert the wording to a word filter, pin it with an assert, or mark the
-paragraph ``{# lint-ok: reason #}`` when the word is a true hedge.
+sentence ``{# lint-ok: reason #}`` when the word is a true hedge.
+
+``{# lint-ok: reason #}`` accepts the sentence it sits in (or, between
+sentences, the one before it; above a paragraph's first sentence, that one).
+``{# lint-ok(every, most): reason #}`` accepts those words anywhere in the
+paragraph, and ``{# lint-ok-paragraph: reason #}`` the whole paragraph. A
+lint-ok that accepts nothing is reported, so stale ones don't pile up (issue #31).
 
 Separately, when facts are available, a fact that *renders* as 100.0 / 0.0
 only because of rounding, in a sentence with "all", "every", "none" and so on,
@@ -36,7 +42,9 @@ _COMMENT_RE = re.compile(r"\{#.*?#\}", re.DOTALL)
 _RAW_RE = re.compile(r"\{%-?\s*raw\s*-?%\}.*?\{%-?\s*endraw\s*-?%\}", re.DOTALL)
 _HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 _ASSERT_TAG_RE = re.compile(r"\{%-?\s*assert\b.*?-?%\}", re.DOTALL)
-_LINT_OK_RE = re.compile(r"\{#-?\s*lint-ok\b")
+_LINT_OK_TAG_RE = re.compile(
+    r"\{#-?\s*lint-ok(?P<para>-paragraph)?\b(?:\((?P<words>[^)]*)\))?.*?#\}", re.DOTALL
+)
 _WORD_FILTER_RE = re.compile(r"\|\s*(" + "|".join(COVERING_FILTER_NAMES) + r")\b")
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z(\[\x00])")
 # A number typed into prose that looks like a result: a decimal, or a number
@@ -61,7 +69,7 @@ _FACT = "\x00{}\x00"
 class Finding:
     file: str
     line: int
-    kind: str                 # "unchecked", "rounding", "number", "provenance" or "type"
+    kind: str                 # "unchecked", "rounding", "number", "provenance", "type" or "lint-ok"
     sentence: str
     words: list[str] = field(default_factory=list)
     detail: str = ""
@@ -70,7 +78,7 @@ class Finding:
         text = " ".join(self.sentence.split())
         if len(text) > 160:
             text = text[:157] + "..."
-        if self.kind in ("rounding", "number", "provenance", "type"):
+        if self.kind in ("rounding", "number", "provenance", "type", "lint-ok"):
             return f"{self.file}:{self.line}: {self.detail}\n    \"{text}\""
         return f"{self.file}:{self.line}: {', '.join(self.words)}\n    \"{text}\""
 
@@ -94,6 +102,66 @@ def _paragraphs(text: str):
             start, buf = None, []
     if buf:
         yield start, "\n".join(buf)
+
+
+@dataclass
+class _LintOk:
+    """One ``{# lint-ok #}`` comment in a paragraph (issue #31)."""
+    key: tuple                # (paragraph start line, index in paragraph)
+    line: int
+    pos: int                  # offset in the paragraph text it was found in
+    paragraph: bool           # lint-ok-paragraph: accepts the whole paragraph
+    words: frozenset          # lint-ok(word, ...): accepts these words only
+    text: str
+
+
+def _lint_oks(para: str, start: int) -> list[_LintOk]:
+    out = []
+    for k, m in enumerate(_LINT_OK_TAG_RE.finditer(para)):
+        words = frozenset(
+            _normalise_number(w) for w in re.split(r",(?!\d{3})", m.group("words") or "") if w.strip()
+        )
+        out.append(_LintOk((start, k), start + para.count("\n", 0, m.start()), m.start(),
+                           bool(m.group("para")) and not words, words, m.group(0)))
+    return out
+
+
+def _sentence_of(starts: list[int], pos: int) -> int:
+    """Index of the sentence a position belongs to: the last one starting at
+    or before it, so a comment between two sentences belongs to the first."""
+    i = 0
+    for j, s in enumerate(starts):
+        if s <= pos:
+            i = j
+    return i
+
+
+def _sentence_starts(text: str) -> list[int]:
+    """Start offsets of the sentences in ``text`` (facts masked, same length)."""
+    masked = _EXPR_RE.sub(lambda m: "\x00" + re.sub(r"[^\n]", " ", m.group(0)[1:]), text)
+    masked = _blank_out(masked, _STMT_RE)
+    masked = _blank_out(masked, _COMMENT_RE)
+    return [0] + [m.end() for m in _SENTENCE_SPLIT_RE.finditer(masked)]
+
+
+class _Acceptor:
+    """Which lint-oks accept what in one paragraph; records the ones used."""
+
+    def __init__(self, oks: list[_LintOk], starts: list[int], used: set):
+        self.oks, self.used = oks, used
+        self.sentence = [_sentence_of(starts, ok.pos) for ok in oks]
+
+    def accept(self, sentence: int, word: str) -> bool:
+        word = _normalise_number(word)
+        for ok in self.oks:
+            if word in ok.words:
+                self.used.add(ok.key)
+                return True
+        for ok, i in zip(self.oks, self.sentence):
+            if not ok.words and (ok.paragraph or i == sentence):
+                self.used.add(ok.key)
+                return True
+        return False
 
 
 _PARSE_ENV = Environment(extensions=[AssertExtension])
@@ -130,8 +198,8 @@ def _assert_literals(tag: str) -> set[float]:
     }
 
 
-def _hand_typed_numbers(prose: str, allowed: set[str], literals: set[float]) -> list[str]:
-    """Descriptions of result-like numbers typed into ``prose``."""
+def _hand_typed_numbers(prose: str, allowed: set[str], literals: set[float]) -> list[tuple[str, str]]:
+    """(token, description) of result-like numbers typed into ``prose``."""
     out = []
     for m in _NUMBER_RE.finditer(_NOT_PROSE_RE.sub(" ", prose)):
         num, unit = m.group("num"), m.group("unit")
@@ -143,7 +211,7 @@ def _hand_typed_numbers(prose: str, allowed: set[str], literals: set[float]) -> 
         detail = f"hand-typed number '{token}'"
         if float(num.replace(",", "")) in literals:
             detail += " (an assert compares a fact with this same literal)"
-        out.append(detail)
+        out.append((token, detail))
     return out
 
 
@@ -154,10 +222,13 @@ def lint_text(
     context: dict | None = None,
     numbers: bool = False,
     allowed_numbers=(),
+    used: set | None = None,
 ) -> list[Finding]:
     """Lint one template source. ``env`` and ``context`` enable the rounding
     check. ``numbers`` also flags result-like numbers typed into the prose of a
-    paragraph that uses facts, except those in ``allowed_numbers`` (issue #22)."""
+    paragraph that uses facts, except those in ``allowed_numbers`` (issue #22).
+    The keys of the lint-oks that accept something are added to ``used``."""
+    used = set() if used is None else used
     allowed = {_normalise_number(a) for a in allowed_numbers}
     text = _blank_out(text, _RAW_RE)
     text = _blank_out(text, _HTML_COMMENT_RE)
@@ -169,7 +240,6 @@ def lint_text(
         # lint-ok accepts the claim words only; the rounding check still runs,
         # since a hedge accepted for one sentence says nothing about a rounded
         # "every" in another (issue #17).
-        lint_ok = bool(_LINT_OK_RE.search(para))
         asserted: set[str] = set()
         literals: set[float] = set()
         for tag in _ASSERT_TAG_RE.findall(para):
@@ -184,19 +254,25 @@ def lint_text(
             return _FACT.format(len(exprs) - 1)
 
         masked = _EXPR_RE.sub(mask, para)
+        oks = _lint_oks(masked, start)
         masked = _blank_out(masked, _STMT_RE)
         masked = _blank_out(masked, _COMMENT_RE)
+        sentences = _SENTENCE_SPLIT_RE.split(masked)
+        starts, pos = [], 0
+        for sentence in sentences:
+            starts.append(masked.index(sentence, pos))
+            pos = starts[-1] + len(sentence)
+        accept = _Acceptor(oks, starts, used)
 
-        pos = 0
-        for sentence in _SENTENCE_SPLIT_RE.split(masked):
-            offset = masked.index(sentence, pos)
-            pos = offset + len(sentence)
+        for n, (sentence, offset) in enumerate(zip(sentences, starts)):
             line = start + masked.count("\n", 0, offset)
             ids = [int(i) for i in re.findall(r"\x00(\d+)\x00", sentence)]
             prose = re.sub(r"\x00\d+\x00", " ", sentence)
             original = re.sub(r"\x00(\d+)\x00", lambda m: "{{" + exprs[int(m.group(1))] + "}}", sentence)
-            if numbers and not lint_ok:
-                for detail in _hand_typed_numbers(prose, allowed, literals):
+            # Run without --numbers too, so a lint-ok kept for a number isn't
+            # reported as accepting nothing.
+            for token, detail in _hand_typed_numbers(prose, allowed, literals):
+                if not accept.accept(n, token) and numbers:
                     findings.append(Finding(filename, line, "number", original, detail=detail))
             if not ids:
                 continue
@@ -207,12 +283,12 @@ def lint_text(
             # a fact the assert reads.
             facts = set().union(*(_refs("{{" + exprs[i] + "}}") for i in ids))
             covered = (
-                lint_ok
-                or any(_WORD_FILTER_RE.search(exprs[i]) for i in ids)
+                any(_WORD_FILTER_RE.search(exprs[i]) for i in ids)
                 or bool(facts & asserted)
             )
-            if words and not covered:
-                findings.append(Finding(filename, line, "unchecked", original, words))
+            unaccepted = [] if covered else [w for w in words if not accept.accept(n, w)]
+            if unaccepted:
+                findings.append(Finding(filename, line, "unchecked", original, unaccepted))
 
             if env is not None and context is not None and TOTALITY_WORDS.intersection(words):
                 for i in ids:
@@ -241,22 +317,28 @@ def _rounding_issue(expr: str, env, context: dict) -> str | None:
     )
 
 
-def provenance_findings(text: str, filename: str, context: dict) -> list[Finding]:
+def provenance_findings(text: str, filename: str, context: dict,
+                        used: set | None = None) -> list[Finding]:
     """Paragraphs and tables that use facts from files produced by different
     versions of the same tool, per their provenance sidecars (issue #13).
-    ``{# lint-ok #}`` accepts a paragraph that compares versions on purpose."""
+    Any ``{# lint-ok #}`` in a paragraph accepts it as comparing versions on
+    purpose, since the finding is about the whole paragraph."""
+    used = set() if used is None else used
     text = _blank_out(_blank_out(text, _RAW_RE), _HTML_COMMENT_RE)
     findings = []
     for start, para in _paragraphs(text):
-        if "{{" not in para or _LINT_OK_RE.search(para):
+        if "{{" not in para:
             continue
+        oks = _lint_oks(para, start)
         namespaces = {
             ns for expr in _EXPR_RE.findall(para)
             for ns in re.findall(r"(?<![\w.])([A-Za-z_]\w*)\s*[.\[]", expr)
             if isinstance(context.get(ns), dict)
         }
         mixed = mixed_versions(namespaces, context)
-        if mixed:
+        if mixed and oks:
+            used.update(ok.key for ok in oks)
+        elif mixed:
             first = next(l for l in para.splitlines() if l.strip())
             findings.append(Finding(filename, start, "provenance", first,
                                     detail="mixes tool versions: " + "; ".join(mixed)))
@@ -300,18 +382,23 @@ def _percent_issue(expr: str, context: dict) -> str | None:
     return None
 
 
-def type_findings(text: str, filename: str, context: dict) -> list[Finding]:
+def type_findings(text: str, filename: str, context: dict,
+                  used: set | None = None) -> list[Finding]:
     """``{{ fact }}%`` where the fact's type (or an untyped value below 1)
     means the printed percent is wrong by a factor of 100 (issue #12).
-    ``{# lint-ok #}`` accepts a paragraph."""
+    ``{# lint-ok #}`` accepts its sentence, ``{# lint-ok(%) #}`` or
+    ``{# lint-ok-paragraph #}`` the paragraph."""
+    used = set() if used is None else used
     text = _blank_out(_blank_out(_blank_out(text, _RAW_RE), _HTML_COMMENT_RE), _OTHER_COMMENT_RE)
     findings = []
     for start, para in _paragraphs(text):
-        if "{{" not in para or _LINT_OK_RE.search(para):
+        if "{{" not in para:
             continue
+        starts = _sentence_starts(para)
+        accept = _Acceptor(_lint_oks(para, start), starts, used)
         for m in _PERCENT_AFTER_RE.finditer(para):
             detail = _percent_issue(m.group(1), context)
-            if detail:
+            if detail and not accept.accept(_sentence_of(starts, m.start()), "%"):
                 line = start + para.count("\n", 0, m.start())
                 sentence = para.splitlines()[line - start]
                 findings.append(Finding(filename, line, "type", sentence, detail=detail))
@@ -329,11 +416,32 @@ def lint_files(paths: list[Path], project_root: Path, env=None, context=None,
         except ValueError:
             name = str(path)
         text = path.read_text()
-        findings.extend(lint_text(text, name, env, context, numbers, allowed_numbers))
+        used: set = set()
+        findings.extend(lint_text(text, name, env, context, numbers, allowed_numbers, used))
         if context is not None:
-            findings.extend(provenance_findings(text, name, context))
-            findings.extend(type_findings(text, name, context))
+            findings.extend(provenance_findings(text, name, context, used))
+            findings.extend(type_findings(text, name, context, used))
+            # Without facts the provenance and type checks don't run, so a
+            # lint-ok kept for them would look unused.
+            findings.extend(unused_lint_oks(text, name, used))
     return findings
+
+
+def unused_lint_oks(text: str, filename: str, used: set) -> list[Finding]:
+    """lint-oks whose key is not in ``used``: they accept nothing, typically
+    because the hedged word was edited out or is now covered (issue #31)."""
+    text = _blank_out(_blank_out(text, _RAW_RE), _HTML_COMMENT_RE)
+    out = []
+    for start, para in _paragraphs(text):
+        for ok in _lint_oks(para, start):
+            if ok.key not in used:
+                if ok.words:
+                    what = f"nothing: {', '.join(sorted(ok.words))} not flagged in its paragraph"
+                else:
+                    what = f"nothing in its {'paragraph' if ok.paragraph else 'sentence'}"
+                out.append(Finding(filename, ok.line, "lint-ok", ok.text,
+                                   detail=f"lint-ok accepts {what}; remove it"))
+    return out
 
 
 _INCLUDE_RE = re.compile(r"""\{%-?\s*include\s+(facts_dir\s*\+\s*)?["']([^"']+)["']""")
@@ -452,15 +560,18 @@ def format_findings(findings: list[Finding]) -> str:
     numbers = [f for f in findings if f.kind == "number"]
     if numbers:
         summary.append(f"{len(numbers)} hand-typed number(s) in paragraphs that use facts")
+    stale = [f for f in findings if f.kind == "lint-ok"]
+    if stale:
+        summary.append(f"{len(stale)} lint-ok(s) accept nothing")
     out.append("")
     out.append("; ".join(summary) + f" ({files} file(s)).")
     if unchecked:
         out.append(
             "For each: use a word filter, add an {% assert %} for the condition the "
-            "wording depends on, or add {# lint-ok: reason #} to the paragraph."
+            "wording depends on, or add {# lint-ok: reason #} to the sentence."
         )
-    elif not numbers:
-        out.append("Add {# lint-ok: reason #} to a paragraph to accept it as written.")
+    elif not numbers and not stale:
+        out.append("Add {# lint-ok: reason #} to a sentence to accept it as written.")
     if numbers:
         out.append(
             "For a hand-typed number: make it a fact, or if it is a design value "

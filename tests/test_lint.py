@@ -1,7 +1,9 @@
 """Tests for `vibepaper lint` and the claim-word lexicon (issue #9)."""
 
 from vibepaper.claims import claim_words
-from vibepaper.lint import format_findings, line_ending_issues, lint_text, unused_facts
+from vibepaper.lint import (
+    format_findings, line_ending_issues, lint_files, lint_text, unused_facts,
+)
 from vibepaper.render import make_jinja_env
 
 
@@ -144,4 +146,52 @@ def test_hand_typed_numbers():
     numbers = lambda t, **kw: [f for f in lint_text(t, "x.md", **kw) if f.kind == "number"]
     assert numbers(text) == []                                  # opt-in
     assert numbers("Prose 0.4% only.\n", numbers=True) == []    # no facts in paragraph
-    assert numbers(text + "{# lint-ok: design #}\n", numbers=True) == []
+    assert numbers(text + "{# lint-ok-paragraph: design #}\n", numbers=True) == []
+    # A plain lint-ok accepts only its own (here the last) sentence (issue #31).
+    [f] = numbers(text + "{# lint-ok: design #}\n", numbers=True)
+    assert "0.29" in f.detail
+    assert numbers(text + "{# lint-ok(0.29 percentage points, 0.4%, 1,000x): design #}\n",
+                   numbers=True, allowed_numbers=["95%", "0.05"]) == []
+
+
+def test_lint_ok_is_scoped_to_its_sentence():
+    # Issue #31: a lint-ok used to accept every sentence in its paragraph.
+    text = (
+        "All {{ a }} were kept {# lint-ok: 'all' defines the set #} as is. "
+        "Most {{ b }} rose.\n"
+    )
+    [f] = lint_text(text, "x.md")
+    assert f.words == ["most", "rose"] and "Most" in f.sentence
+    # Between sentences it belongs to the one before; above the paragraph,
+    # to the first.
+    text = "All {{ a }} were kept. {# lint-ok: x #} Most {{ b }} rose.\n"
+    assert [f.words for f in lint_text(text, "x.md")] == [["most", "rose"]]
+    text = "{# lint-ok: x #}\nAll {{ a }} were kept.\nMost {{ b }} rose.\n"
+    assert [f.words for f in lint_text(text, "x.md")] == [["most", "rose"]]
+
+
+def test_lint_ok_named_words_and_paragraph():
+    text = "All {{ a }} were kept. Most {{ b }} rose. {# lint-ok(all, most): reason #}\n"
+    [f] = lint_text(text, "x.md")
+    assert f.words == ["rose"]
+    text = "All {{ a }} were kept. Most {{ b }} rose.\n{# lint-ok-paragraph: quoted #}\n"
+    assert lint_text(text, "x.md") == []
+
+
+def test_unused_lint_ok_reported(tmp_path):
+    sec = tmp_path / "r.md"
+    sec.write_text(
+        "We had {{ a.n }} samples. {# lint-ok: stale #}\n\n"
+        "Only {{ a.n }} passed. {# lint-ok: hedge #}\n\n"
+        "Only {{ a.n }} passed. {# lint-ok(every): stale #}\n\n"
+        "{% assert a.n > 1 %}\nMost {{ a.n }} passed. {# lint-ok: covered by the assert #}\n"
+    )
+    stale = [f for f in lint_files([sec], tmp_path, context={"a": {"n": 3}}) if f.kind == "lint-ok"]
+    assert [(f.line, f.detail) for f in stale] == [
+        (1, "lint-ok accepts nothing in its sentence; remove it"),
+        (5, "lint-ok accepts nothing: every not flagged in its paragraph; remove it"),
+        (8, "lint-ok accepts nothing in its sentence; remove it"),
+    ]
+    assert "3 lint-ok(s) accept nothing" in format_findings(stale)
+    # Without facts, the type and provenance checks don't run: no report.
+    assert not [f for f in lint_files([sec], tmp_path) if f.kind == "lint-ok"]

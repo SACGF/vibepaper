@@ -2,6 +2,19 @@
 
 All notable changes to vibepaper are documented here.
 
+## [Unreleased]
+
+### Changed
+
+- **`{# lint-ok #}` accepts only the sentence it sits in** ([#31](https://github.com/SACGF/vibepaper/issues/31)). It used to accept the claim words of the whole paragraph, so a hedge accepted for one sentence also hid any claim added later to another. Put it at the end of (or inside) the sentence it is about. Between two sentences it belongs to the one before; on its own line above a paragraph, to the first sentence. Two more forms: `{# lint-ok(every, most): reason #}` accepts only those words (or numbers, or `%` for a percent-magnitude finding) anywhere in the paragraph, and `{# lint-ok-paragraph: reason #}` accepts the whole paragraph, e.g. one quoting another paper's figures. A provenance finding is about a whole paragraph, so any lint-ok there still accepts it.
+- **`vibepaper lint` reports a lint-ok that accepts nothing** ([#31](https://github.com/SACGF/vibepaper/issues/31)), e.g. because the hedged word was edited out or an assert now covers the sentence. This needs facts (it runs when the facts directory exists) and fails `--check`.
+
+### Fixed
+
+- **Untyped values in a vertical facts CSV load the way they did in a horizontal one** ([#32](https://github.com/SACGF/vibepaper/issues/32)). Each cell is converted on its own, so an untyped `138` stays an int (and prints "138", not "138.0") in a file that also has a decimal. Floats load exactly with pandas < 3 too (`0.15822784810126583` used to lose its last bit), so converting a file to vertical, or adding a type, no longer shows as a change in `vibepaper diff`.
+- `UPGRADE_PROMPT.md` now says to convert horizontal facts CSVs to vertical to adopt typed facts (types are vertical-only by design, [#27](https://github.com/SACGF/vibepaper/pull/27)), with the steps and pitfalls from the cdot conversion ([#32](https://github.com/SACGF/vibepaper/issues/32)).
+- `vibepaper --help` crashed with `TypeError: not enough arguments for format string`: the `check` subcommand's help had an unescaped `%` ([#29](https://github.com/SACGF/vibepaper/issues/29)).
+
 ## [0.10.0] — 2026-11-11
 
 Upgrading from 0.9: give [`UPGRADE_PROMPT.md`](UPGRADE_PROMPT.md) to an agent in the paper's repo ([#28](https://github.com/SACGF/vibepaper/issues/28)). It records a baseline with 0.9, checks the render changes, and works through the behaviour changes and new features below.

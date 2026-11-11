@@ -346,7 +346,18 @@ allowed_numbers = ["95%", "0.05", "0.1%", "0.5%", "1%", "1,000x"]
 
 Lint also lists facts CSVs whose line endings (CRLF or LF) differ from the rest of the facts directory. This is a note only and does not make `--check` fail.
 
-For a word that really is a hedge or a judgement ("just", "only", "striking"), accept it by adding `{# lint-ok: reason #}` anywhere in the paragraph. It can go on a line of its own: like an assert, it leaves no blank line in the output. It accepts the claim words (and a deliberate mix of tool versions, see [provenance](#provenance-which-versions-produced-a-facts-file)) only: a fact that rounds to 100.0 or 0.0 beside "every" or "none" is still flagged.
+For a word that really is a hedge or a judgement ("just", "only", "striking"), accept it by adding `{# lint-ok: reason #}` at the end of (or inside) its sentence. It accepts that sentence only, so a claim added later to another sentence of the paragraph is still flagged. Between two sentences it belongs to the one before; on a line of its own above a paragraph (like an assert, it leaves no blank line in the output), to the first sentence.
+
+```markdown
+{{ x | dp(1) }}% preserved every coding coordinate. {# lint-ok: 'every' defines the category #}
+```
+
+Two other forms:
+
+- `{# lint-ok(every, most): reason #}` accepts only those words, anywhere in the paragraph. It also takes a hand-typed number (`lint-ok(0.05)`) or `%` for a percent that may print at the wrong magnitude.
+- `{# lint-ok-paragraph: reason #}` accepts the whole paragraph, e.g. one that quotes another paper's figures.
+
+A lint-ok accepts claim words, hand-typed numbers, percent-magnitude findings and a deliberate mix of tool versions (any lint-ok in the paragraph, see [provenance](#provenance-which-versions-produced-a-facts-file)). A fact that rounds to 100.0 or 0.0 beside "every" or "none" is still flagged. When facts are available, lint also reports a lint-ok that accepts nothing (the hedged word was edited out, or an assert now covers it), so stale ones don't pile up.
 
 ### `vibepaper check`: run the asserts without a build
 
@@ -830,8 +841,9 @@ vibepaper lint [FILE.md ...] [--config FILE] [--facts-dir DIR] [--unused] [--num
   (rises, within, nearly, all, every, dominated, ...) that nothing covers: no
   word filter on one of the sentence's facts, and no {% assert %} in the
   paragraph that reads one of them. Also lists facts that round to 100.0/0.0
-  beside "every"/"none". Mark a paragraph {# lint-ok: reason #} to accept its
-  wording. --unused also lists facts the paper never references; --numbers
+  beside "every"/"none". Mark a sentence {# lint-ok: reason #} to accept its
+  wording ({# lint-ok(word): ... #} or {# lint-ok-paragraph: ... #} for wider
+  scope). --unused also lists facts the paper never references; --numbers
   flags result-like numbers typed into paragraphs that use facts.
 
   vibepaper lint                               # sections from paper.toml

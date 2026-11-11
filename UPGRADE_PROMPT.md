@@ -65,6 +65,16 @@ vibepaper diff --against <branch point>   # facts: only the changes you meant (t
 
 ---
 
+## 0.10 → next release
+
+### Expected render changes (Step 2)
+
+- An untyped integer in a vertical facts CSV that also has decimals now prints as `138`, not `138.0` ([#32](https://github.com/SACGF/vibepaper/issues/32)). Check each such change is a fix, not a sentence that relied on the `.0`.
+
+### Behaviour changes (Step 3)
+
+- **`{# lint-ok #}` accepts only its own sentence** ([#31](https://github.com/SACGF/vibepaper/issues/31)), not the whole paragraph. Expect new findings in the other sentences of paragraphs that have a lint-ok, and notes for lint-oks that now accept nothing. For each lint-ok: move it to the end of the sentence it is about, or name the word (`{# lint-ok(every): reason #}`) when the paragraph has several sentences that use it. Use `{# lint-ok-paragraph: reason #}` only for a paragraph that really is all quoted or deliberate. Then resolve each new finding in the other sentences as Step 3 says, checking first whether it is true. Delete a lint-ok lint reports as accepting nothing.
+
 ## 0.9 → 0.10
 
 ### Expected render changes (Step 2)
@@ -91,9 +101,21 @@ vibepaper diff --against <branch point>   # facts: only the changes you meant (t
 | **`[claims]` tolerances** ([#24](https://github.com/SACGF/vibepaper/issues/24)) | asserts with hand-written tolerances, e.g. `abs(a - b) / b < 0.1`, `a / b < 2`, beside "close to", "comparable", "essentially unchanged", "near zero" | Define each word once in `paper.toml` `[claims]`, with a TOML comment saying why that tolerance, and use `is close_to(…)`. Use the same tolerance for the same word everywhere. If two uses of one word need different tolerances, they're two words |
 | **Frozen facts** ([#14](https://github.com/SACGF/vibepaper/issues/14)) | values merged back by hand after re-runs; "not re-run", "measured 2025-06", "frozen", "cached" in `AGENTS.md`, notes or scripts; constants hard-coded in a producer script so they survive re-runs | `vibepaper freeze ns.field ... --reason "..."` and commit `paper/frozen_facts.csv`. Remove the hard-coded constant or merge step it replaces |
 | **Provenance** ([#13](https://github.com/SACGF/vibepaper/issues/13)) | tool, data or database versions typed into methods, captions and table headers (`grep -nE '[0-9]+\.[0-9]+\.[0-9]+'`, release names, dates like "measured in June 2025") | Call `write_provenance(csv, tools=[...])` in the script that produces the facts, then use `{{ ns._prov.tools.x }}` / `{{ ns._prov.date }}` in prose. A version the paper cites as a target (not one that produced a fact) stays as text |
-| **Typed facts** ([#12](https://github.com/SACGF/vibepaper/issues/12)) | `lint` type findings; `}}%`, `* 100`, `dp(...)}}%` in templates; fact names with `_pct`, `_percent`, `_frac`, `_rate`, `_share`, `_q`, `_p`, `n_`, `_count` | Switch producers to `write_facts()` with `Fraction`, `Percent`, `PValue`, `Count`, `Ratio`, or add a `type` column to vertical CSVs. Then use `{{ x \| pct }}` for typed fractions and percents. Type the percentages and p-values first; that's where the mistakes are |
+| **Typed facts** ([#12](https://github.com/SACGF/vibepaper/issues/12)) | `lint` type findings; `}}%`, `* 100`, `dp(...)}}%` in templates; fact names with `_pct`, `_percent`, `_frac`, `_rate`, `_share`, `_q`, `_p`, `n_`, `_count` | Switch producers to `write_facts()` with `Fraction`, `Percent`, `PValue`, `Count`, `Ratio`, or add a `type` column to vertical CSVs. Then use `{{ x \| pct }}` for typed fractions and percents. Type the percentages and p-values first; that's where the mistakes are. **Types live only in vertical CSVs, by design ([#27](https://github.com/SACGF/vibepaper/pull/27)): if the facts CSVs are horizontal, convert them, don't skip typed facts or ask for horizontal types.** See [Converting to typed vertical CSVs](#converting-to-typed-vertical-csvs) below |
 | **Line endings** ([#20](https://github.com/SACGF/vibepaper/issues/20)) | the `lint` note | `lineterminator="\n"` in the producer, then re-run it or convert the file once |
 | **`lint --unused`** ([#17](https://github.com/SACGF/vibepaper/issues/17)) | `vibepaper lint --unused` | Expect a long list (over 100 in the cdot and allomix papers), so work by namespace, not fact by fact. For each group: should the paper mention it (a new category a re-run added)? If not, and it's dead, stop emitting it. If it's kept on purpose (raw inputs, supplementary), add a glob to `[lint] unused_ok` |
 | **`lint --numbers`** ([#22](https://github.com/SACGF/vibepaper/issues/22)) | `vibepaper lint --numbers` | Expect many hits that are design values (allomix had 122, mostly titration levels). Tally them first: `vibepaper lint --numbers \| grep -oE "hand-typed number '[^']+'" \| sort \| uniq -c \| sort -rn`. Put the design values (titration levels, the nominal 95%, p < 0.05) in `[lint] allowed_numbers`, then look at each hit that's left. A result typed by hand: make it a fact, after checking it against a current run, because it's often stale. A finding that says "an assert compares a fact with this same literal": if the literal is a threshold set by design (an LoD target), fine. If it's a result from an earlier run, the assert checks the claim against a number nobody re-measured, so make it a fact |
 
 Facts added for typed facts, provenance or `--numbers` count as analysis changes: report each with its current value.
+
+#### Converting to typed vertical CSVs
+
+Horizontal facts CSVs (one header row, one data row) can't carry types. Converting them is mostly mechanical: in the cdot paper, 21 one-row files became 339 vertical facts (175 percent, 69 count, 4 ratio, 2 fraction, 5 text, 84 untyped) with a small helper module, an edit of about 20 producers and a one-off conversion script. 83 template uses switched to `pct`, and every value and the rendered paper were unchanged.
+
+1. Switch each producer to `vibepaper.facts.write_facts()`. Use the same writer for a one-off conversion of the committed CSVs, frozen and hand-edited ones included, so they match what a re-run writes.
+2. If the paper names its facts consistently (`*_pct`, `n_*`, `*_ratio`), a small helper that picks each fact's type from its name and calls `write_facts()` types most facts without per-field edits (cdot: 255 of 339). Otherwise, type each value at its `write_facts()` call. Either way, the type range checks may catch a bad value an untyped run would have written silently (cdot: a test-data `improvement_fold` that rounded to 0).
+3. In templates, `{{ x | dp(N) }}%` becomes `{{ x | pct(N) }}` for a typed percent, and `{{ (f * 100) | dp(N) }}%` becomes `{{ f | pct(N) }}` for a typed fraction. `dp` and `pct` format numbers the same way, so the render doesn't change.
+4. Switch any script that *reads* a facts CSV (figure scripts, derive-only steps) to the vertical form.
+5. Check: `vibepaper diff --against main` shows no value changes (a fact that only gained a type is not a change), and `vibepaper diff` shows no render changes.
+
+Untyped values in a vertical CSV load as they did horizontally: an integer stays an int beside decimals, and floats load exactly. Neither was true in 0.10 ([#32](https://github.com/SACGF/vibepaper/issues/32)): with 0.10, give counts the type `count` or format them with `| int`, or `138` prints as "138.0".

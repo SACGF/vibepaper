@@ -197,7 +197,7 @@ It lists every sentence that has a `{{ fact }}` beside a claim word (rises, fall
   {% assert residual.indel_count > residual.multi_locus_count, "'dominated by indel then paralog' order" %}
   ```
   For judgement words ("close to", "comparable to"), define the tolerance once under `[claims]` in `paper.toml` (e.g. `close_to = { within_pct = 10 }`) and assert `{% assert x is close_to(95), "..." %}`.
-- **(c) Leave it and say why.** For true hedges and interpretive words ("just", "only", "striking"), add `{# lint-ok: reason #}` to the paragraph (on its own line or at the end of one).
+- **(c) Leave it and say why.** For true hedges and interpretive words ("just", "only", "striking"), add `{# lint-ok: reason #}` at the end of the sentence (it accepts only that sentence).
 
 Rules:
 - Never keep a magnitude or direction word as a literal beside a fact.

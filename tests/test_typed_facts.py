@@ -148,3 +148,30 @@ def test_lint_hints_untyped_fraction_by_name_only(ctx):
     text = "{{ u.herding_rate | dp(2) }}% {{ u.high_pct | dp(2) }}% {{ u.share_n }}%\n"
     findings = type_findings(text, "a.md", ctx)
     assert len(findings) == 1 and "u.herding_rate = 0.0153 is untyped" in findings[0].detail
+
+
+def test_lint_ok_for_percent_is_scoped_to_its_sentence(ctx):
+    # Issue #31: a lint-ok accepts its own sentence, not the paragraph.
+    text = (
+        "Rate {{ h.herding_rate_near | dp(2) }}%. {# lint-ok: deliberate #} "
+        "Again {{ h.herding_rate_near | dp(2) }}%.\n"
+    )
+    assert len(type_findings(text, "a.md", ctx)) == 1
+    assert type_findings(text.replace("lint-ok:", "lint-ok(%):"), "a.md", ctx) == []
+
+
+def test_untyped_vertical_cells_convert_one_by_one(tmp_path):
+    # Issue #32: pd.to_numeric over the column made 138 a float (rendering
+    # "138.0") whenever the file also had a decimal, and pandas' default float
+    # parser dropped the last bit of some values.
+    from vibepaper.render import load_facts
+    (tmp_path / "v.csv").write_text(
+        "field,value\nn,138\nx,0.15822784810126583\nname,cdot\nblank,\n"
+    )
+    (tmp_path / "h.csv").write_text("x,n\n0.15822784810126583,138\n")
+    ctx = load_facts(tmp_path)
+    v = ctx["v"]
+    assert type(v["n"]) is int and str(v["n"]) == "138"
+    assert v["x"] == 0.15822784810126583 and v["name"] == "cdot"
+    assert v["blank"] != v["blank"]          # NaN, as before
+    assert ctx["h"]["x"] == 0.15822784810126583
