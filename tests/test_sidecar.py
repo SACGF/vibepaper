@@ -242,3 +242,31 @@ def test_extract_quote_does_not_cover_words_the_tag_did_not(tmp_path):
     [e] = load(sidecar_path(md))
     assert "all" not in e.quotes[0].split() and not e.quotes[0].startswith("…")
     assert [f.words for f in lint_files([md], tmp_path, env, ctx)] == [["all"]]
+
+
+def test_extract_mid_sentence_lint_ok_quote_still_matches(tmp_path):
+    # Issue #51: removing a tag before a comma left "%) ," in the quote
+    (tmp_path / "facts").mkdir()
+    (tmp_path / "facts" / "r.csv").write_text("field,value\nn,3\n")
+    (tmp_path / "paper.toml").write_text(
+        '[paper]\nsections = ["a.md"]\nfacts_dir = "facts"\n\n[lint]\nallowed_numbers = ["0.5%"]\n')
+    (tmp_path / "a.md").write_text(
+        "We saw {{ r.n }} hits in kits (0.06--0.5%){# lint-ok(0.06): vendor range #}, a range.\n\n"
+        "{# lint-ok(lowest): stale #}\nOther {{ r.n }} text.\n\n"
+        "{# lint-ok(every): stale #}\nMore {{ r.n }} text.\n")
+    proc = subprocess.run([sys.executable, "-m", "vibepaper", "claims", "extract"], cwd=tmp_path,
+                          capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    lint = subprocess.run([sys.executable, "-m", "vibepaper", "lint", "--numbers", "--check"],
+                          cwd=tmp_path, capture_output=True, text=True)
+    assert lint.returncode == 0, lint.stdout
+
+
+def test_extract_refuses_a_new_finding_even_if_the_total_is_level(tmp_path):
+    from vibepaper.cli import _new_findings
+    from vibepaper.lint import Finding
+    before = [Finding("a.md", 3, "unchecked", "A {{x}} rose.", ["rose"]),
+              Finding("a.md", 5, "lint-ok", "{# lint-ok #}", detail="stale")]
+    after = [Finding("a.md", 2, "unchecked", "A {{x}} rose.", ["rose"]),
+             Finding("a.md", 4, "number", "B 0.06.", ["0.06"], detail="hand-typed number '0.06'")]
+    assert [f.kind for f in _new_findings(before, after)] == ["number"]

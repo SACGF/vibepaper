@@ -153,20 +153,33 @@ def _normalise(masked: str) -> tuple[str, list[int]]:
             continue
         c = masked[i]
         if c.isspace():
-            if out and out[-1] != " ":
+            # no space after an opening bracket (issue #51)
+            if out and out[-1] not in " ([":
                 out.append(" ")
                 idx.append(i)
         elif c != "*":
+            if c in _CLOSE and out and out[-1] == " ":
+                out.pop()        # nor before punctuation: "0.5%) ," == "0.5%),"
+                idx.pop()
             out.append(c.lower())
             idx.append(i)
         i += 1
     return "".join(out), idx
 
 
+_CLOSE = set(",.;:!?)]")
+
+
+def _squeeze(text: str) -> str:
+    """A quote's text spaced as :func:`_normalise` spaces a sentence."""
+    text = " ".join(text.replace("*", "").lower().split())
+    return re.sub(r"(?<=[(\[]) | (?=[,.;:!?)\]])", "", text)
+
+
 def quote_regex(quote: str) -> re.Pattern:
     """A quote as a pattern over :func:`_normalise`d text. A wildcard (``…``)
     also takes up the spaces around it, so "(+ … )" matches "(+{{ x }})"."""
-    parts = [" ".join(part.replace("*", "").lower().split()) for part in _WILDCARD_RE.split(quote)]
+    parts = [_squeeze(part) for part in _WILDCARD_RE.split(quote)]
     # A wildcard at either end adds nothing but would stretch the match to
     # the sentence's start or end, covering words the quote doesn't show.
     while len(parts) > 1 and not parts[0]:

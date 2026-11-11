@@ -317,3 +317,10 @@ def test_quoted_phrase_may_hold_an_apostrophe():
         "Of {{ r.k }} cases, the list of LOVD's suggestions changes no case.\n"
     )
     assert lint_text(text, "x.md") == []
+
+
+def test_sentence_splits_after_a_citation():
+    # Issue #51
+    text = "Earlier work found most samples positive.[@a] Here all {{ r.n }} samples passed.\n"
+    [f] = lint_text(text, "x.md")
+    assert f.words == ["all"] and f.sentence.startswith("Here")

@@ -995,17 +995,19 @@ def _run_claims(args):
         old_side = side.read_text() if side.exists() else None
         write(res, path)
         after = lint_files([path], project_root, env, context, numbers=True, allowed_numbers=allowed)
-        if len(after) > len(before) and not args.force:
+        # Any finding that wasn't there before blocks the write, even when
+        # dropped stale lint-oks keep the total level (issue #51).
+        new = _new_findings(before, after)
+        if new and not args.force:
             path.write_text(old_text)
             if old_side is None:
                 side.unlink(missing_ok=True)
             else:
                 side.write_text(old_side)
-            print(f"{res.file}: not written: lint finds {len(after)} after vs {len(before)} before "
+            print(f"{res.file}: not written: {len(new)} finding(s) that were not there before "
                   "(--dry-run shows the entries, --force writes anyway):")
             from .lint import format_findings
-            seen = {(f.file, f.line, f.kind, tuple(f.words)) for f in before}
-            print(format_findings([f for f in after if (f.file, f.line, f.kind, tuple(f.words)) not in seen]))
+            print(format_findings(new))
             continue
         print(f"{res.file}: {res.claims} claim(s), {res.checks} check(s), {res.oks} ok(s) → "
               f"{res.sidecar}; lint findings {len(before)} → {len(after)}")
@@ -1014,6 +1016,28 @@ def _run_claims(args):
     if not args.dry_run:
         print(f"Moved {total['claims']} claim(s), {total['checks']} check(s) and {total['oks']} ok(s). "
               "Review the quotes, then run vibepaper lint and vibepaper check.")
+
+
+def _new_findings(before: list, after: list) -> list:
+    """Findings in ``after`` with no counterpart in ``before``, matched by
+    kind, words and sentence text (lines move when tags are removed)."""
+    import re as _re
+    from collections import Counter
+
+    def key(f):
+        text = _re.sub(r"\{#.*?#\}|\{%.*?%\}", "", f.sentence, flags=_re.S)
+        text = _re.sub(r"\s+(?=[,.;:!?)\]])|(?<=[(\[])\s+", "", " ".join(text.split()))
+        return (f.kind, tuple(f.words), text if f.kind in ("unchecked", "number", "rounding") else f.detail)
+
+    seen = Counter(key(f) for f in before if f.kind not in ("lint-ok", "claims"))
+    out = []
+    for f in after:
+        k = key(f)
+        if seen[k]:
+            seen[k] -= 1
+        else:
+            out.append(f)
+    return out
 
 
 # ---------------------------------------------------------------------------

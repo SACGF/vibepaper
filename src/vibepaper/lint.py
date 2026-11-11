@@ -68,6 +68,7 @@ _FRONT_MATTER_RE = re.compile(r"\A---[ \t]*\n.*?^(---|\.\.\.)[ \t]*$", re.DOTALL
 _HEADING_RE = re.compile(r"(?m)^[ \t]*#{1,6}[ \t].*$")
 _ROUNDED_TOTAL_RE = re.compile(r"^\s*(100(\.0+)?|0\.0+)\s*%?\s*$")
 _FACT = "\x00{}\x00"
+_CITATION_RE = re.compile(r"\[[^\[\]]*-?@[\w:.#$%&+?<>~/-]+[^\[\]]*\]")
 
 
 @dataclass
@@ -161,6 +162,9 @@ def _parse_block(start: int, para: str) -> _Block:
     oks = _lint_oks(masked, start)
     masked = _blank_out(masked, _STMT_RE)
     masked = _blank_out(masked, _COMMENT_RE)
+    # Citations aren't prose, and "positive.[@a] Here" must split into two
+    # sentences (issue #51).
+    masked = _blank_out(masked, _CITATION_RE)
     table = _is_table(para)
     # A table is checked row by row, prose sentence by sentence.
     parts = masked.split("\n") if table else _SENTENCE_SPLIT_RE.split(masked)

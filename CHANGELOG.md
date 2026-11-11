@@ -23,6 +23,8 @@ Upgrading from 0.12: give [`UPGRADE_PROMPT.md`](UPGRADE_PROMPT.md) to an agent i
 ### Fixed
 
 - `claims extract` no longer writes a quote that begins or ends with `…`, or one whose match takes in a claim word the inline tag didn't cover. Such a quote silently vouched for that word (an "all" earlier in the sentence). A quote matches whole words only, so "all" no longer matches inside "critically" ([#50](https://github.com/SACGF/vibepaper/issues/50)).
+- `claims extract` checks that it adds no new finding, not only that the total hasn't grown: dropping stale lint-oks could hide a broken quote. A quote also ignores the spacing around punctuation and brackets, so removing a mid-sentence lint-ok (`0.5%){# lint-ok #},`) no longer leaves a quote that doesn't match ([#51](https://github.com/SACGF/vibepaper/issues/51)).
+- Lint splits sentences after a citation (`... positive.[@a] Here ...`). They used to be one sentence, so coverage leaked from one to the next ([#51](https://github.com/SACGF/vibepaper/issues/51)).
 - A phrase quoted in an assert's message may contain an apostrophe ("LOVD's") or a prime after a digit ("3' end"); it used to end there, leaving the claim word uncovered ([#49](https://github.com/SACGF/vibepaper/issues/49)).
 - `vibepaper build --facts-dir DIR` takes `DIR` relative to the working directory, as `lint`, `check` and `diff` do. It used to be relative to `paper.toml`'s directory ([#49](https://github.com/SACGF/vibepaper/issues/49)).
 - `vibepaper diff --against` with no changed facts no longer ends its heading with a colon ([#49](https://github.com/SACGF/vibepaper/issues/49)).
