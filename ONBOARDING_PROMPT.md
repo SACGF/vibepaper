@@ -226,6 +226,10 @@ Watch for:
 
 Use `vibepaper --verbose` to see which CSVs are loaded and which templates are rendered.
 
+### Open work
+
+Keep open work on the paper in **`paper/todo.md`**, not in `AGENTS.md` or `CLAUDE.md`: those say how to work on the repo, and a to-do list there goes stale. List what you could not finish or what needs the author: hand-typed results with no facts behind them yet, wording to cut to a word limit, citations to check against the source, prose you rewrote that the author should read, and facts that need a pipeline re-run. Give each item its section and why it is open, and delete it when it is done. Create the file if it doesn't exist; if the repo already keeps such a list (`paper/notes.md`, a TODO section in `CLAUDE.md`), move the open items into `paper/todo.md` and leave a one-line pointer.
+
 ### After re-running the analysis
 
 `vibepaper diff` reports which facts changed, by name and by how much, and where the paper uses them, followed by the sentences that use a changed fact beside unchecked claim words. Start the re-read from that list rather than from the whole paper.

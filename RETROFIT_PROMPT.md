@@ -103,6 +103,8 @@ Read each changed paragraph in the `vibepaper diff` output and confirm it still 
 
 Report: how many sentences got word filters, asserts and lint-ok each (and whether they are inline or in sidecars); any claims that were **wrong** with the current facts (old wording → new); new derived facts added to scripts; and any hand-kept re-check list you removed. If the project has CI, add `vibepaper lint --check`.
 
+Keep open work on the paper in **`paper/todo.md`**, not in `AGENTS.md` or `CLAUDE.md`: those say how to work on the repo, and a to-do list there goes stale. List what you could not finish or what needs the author: hand-typed results with no facts behind them yet, wording to cut to a word limit, citations to check against the source, prose you rewrote that the author should read, and facts that need a pipeline re-run. Give each item its section and why it is open, and delete it when it is done. Create the file if it doesn't exist; if the repo already keeps such a list (`paper/notes.md`, a TODO section in `CLAUDE.md`), move the open items into `paper/todo.md` and leave a one-line pointer.
+
 ### Going forward
 
 After every analysis re-run, run `vibepaper diff` before re-reading the paper. It names the facts that changed and the unchecked sentences that use them, so the re-read starts from that list.

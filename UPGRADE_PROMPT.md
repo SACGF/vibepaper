@@ -54,13 +54,14 @@ vibepaper diff --against <branch point>   # facts: only the changes you meant (t
 - Update the paper's `AGENTS.md` or `CLAUDE.md`: the vibepaper version, any new commands to run (e.g. `vibepaper lint --unused --numbers`), and the new conventions (typed facts, frozen facts, provenance).
 - Delete hand-kept lists that the new features replace, e.g. "re-check after a re-run" notes, or "these values are not re-run, merge them back by hand" instructions. Say what you deleted.
 - If the project has CI, add the new checks there.
+- Keep open work on the paper in **`paper/todo.md`**, not in `AGENTS.md` or `CLAUDE.md`: those say how to work on the repo, and a to-do list there goes stale. List what you could not finish or what needs the author: hand-typed results with no facts behind them yet, wording to cut to a word limit, citations to check against the source, prose you rewrote that the author should read, and facts that need a pipeline re-run. Give each item its section and why it is open, and delete it when it is done. Create the file if it doesn't exist; if the repo already keeps such a list (`paper/notes.md`, a TODO section in `CLAUDE.md`), move the open items into `paper/todo.md` and leave a one-line pointer.
 
 ### Step 6: Report
 
 - The upgrade: old → new version, and whether Step 2's diff showed only the expected changes (if not, what else changed).
 - Each feature adopted, with counts (e.g. "typed 23 facts in 4 CSVs; froze 6 facts; 3 versions now from provenance").
 - Any claim that was **wrong** with the current facts (old wording → new).
-- What you skipped, and why.
+- What you skipped, and why (and that it is in `paper/todo.md`).
 - Producer scripts you changed but didn't re-run.
 
 ---

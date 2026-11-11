@@ -19,6 +19,7 @@ Upgrading from 0.12: give [`UPGRADE_PROMPT.md`](UPGRADE_PROMPT.md) to an agent i
 
 - **A phrase quoted in an assert's message covers its claim words wherever it appears in the paragraph** ([#42](https://github.com/SACGF/vibepaper/issues/42)), whatever facts the sentence prints. So `{% assert r.fold >= 1.9, "'mean size doubled'" %}` covers "doubled" in a sentence that shows only the before and after values. In 0.12 that needed the assert to read a fact the sentence prints.
 - **Fewer claim words that make no claim** ([#41](https://github.com/SACGF/vibepaper/issues/41)): a word in a hyphenated compound ("3'-most", "left-most", "all-cause", "over-represented"), "no longer" / "no later", "of all" as a denominator, and "vs"/"versus" between two facts are no longer flagged. **Expect lint-oks that accepted these to be reported as accepting nothing**; remove them.
+- The agent prompts (onboarding, retrofit, upgrade) now keep open work on a paper in `paper/todo.md` (hand-typed results with no facts yet, word limits to meet, citations to check, prose for the author to read) instead of in `AGENTS.md` / `CLAUDE.md`.
 
 ### Fixed
 
