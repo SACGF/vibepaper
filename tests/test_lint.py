@@ -308,3 +308,12 @@ def test_rounding_check_scales_a_typed_fraction():
     ctx = {"r": {"agree": Fraction(1.0), "near": Fraction(0.9996)}}
     [f] = [f for f in lint_text(text, "a.md", env, ctx) if f.kind == "rounding"]
     assert f.line == 3
+
+
+def test_quoted_phrase_may_hold_an_apostrophe():
+    # Issue #49
+    text = (
+        "{% assert r.n == 0, \"'the list of LOVD's suggestions changes no case'\" %}\n"
+        "Of {{ r.k }} cases, the list of LOVD's suggestions changes no case.\n"
+    )
+    assert lint_text(text, "x.md") == []

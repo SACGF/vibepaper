@@ -522,7 +522,8 @@ def format_compare(changed, same, unreferenced: int, against: str, fmt: str = "t
             lines += ["", f"Changed but renders the same ({len(same)}): "
                       + ", ".join(f"`{c.name}` ({c.new_shown})" for c in same)]
     else:
-        lines = [f"{len(changed)} fact(s) the paper uses changed against {against}:"]
+        lines = [f"{len(changed)} fact(s) the paper uses changed against {against}"
+                 + (":" if changed else ".")]
         for c in changed:
             lines.append(
                 f"  {c.name}: {c.old_shown} → {c.new_shown}"

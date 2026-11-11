@@ -22,6 +22,9 @@ Upgrading from 0.12: give [`UPGRADE_PROMPT.md`](UPGRADE_PROMPT.md) to an agent i
 
 ### Fixed
 
+- A phrase quoted in an assert's message may contain an apostrophe ("LOVD's") or a prime after a digit ("3' end"); it used to end there, leaving the claim word uncovered ([#49](https://github.com/SACGF/vibepaper/issues/49)).
+- `vibepaper build --facts-dir DIR` takes `DIR` relative to the working directory, as `lint`, `check` and `diff` do. It used to be relative to `paper.toml`'s directory ([#49](https://github.com/SACGF/vibepaper/issues/49)).
+- `vibepaper diff --against` with no changed facts no longer ends its heading with a colon ([#49](https://github.com/SACGF/vibepaper/issues/49)).
 - The rounding check no longer flags a typed fraction of exactly 1.0 (or 0.0) shown with `pct` as "100%" ([#40](https://github.com/SACGF/vibepaper/issues/40)).
 - A lint finding gives the line of its sentence, not of an `{% assert %}` on the line above ([#42](https://github.com/SACGF/vibepaper/issues/42)).
 - A table followed by prose with no blank line between them is linted as a table and a paragraph ([#43](https://github.com/SACGF/vibepaper/issues/43)). It used to be one "sentence" holding the table and the prose, so a claim word in the prose was reported at the table's first line.

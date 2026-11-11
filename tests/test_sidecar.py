@@ -203,3 +203,16 @@ def test_sidecar_facts_count_as_used(tmp_path):
     md = _paper(tmp_path, '[[check]]\nassert = "r.fold > 1"\n', "Text {{ r.before }}.\n")
     ctx = {"r": {"fold": 2.1, "before": 3, "after": 4}}
     assert unused_facts(ctx, [md], tmp_path, tmp_path) == ["r.after"]
+
+
+def test_build_facts_dir_is_relative_to_cwd(tmp_path):
+    # Issue #49: build took --facts-dir relative to paper.toml's directory
+    (tmp_path / "paper").mkdir()
+    (tmp_path / "paper" / "facts").mkdir()
+    (tmp_path / "paper" / "facts" / "r.csv").write_text("field,value\nn,3\n")
+    (tmp_path / "paper" / "paper.toml").write_text('[paper]\nsections = ["a.md"]\n')
+    (tmp_path / "paper" / "a.md").write_text("We had {{ r.n }}.\n")
+    proc = subprocess.run([sys.executable, "-m", "vibepaper", "build", "--config", "paper/paper.toml",
+                           "--facts-dir", "paper/facts", "--md"], cwd=tmp_path,
+                          capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr

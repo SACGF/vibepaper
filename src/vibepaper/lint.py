@@ -524,7 +524,9 @@ def find_quote(phrase: str, sentence: str):
 _FACT_ID_RE = re.compile(r"\x00(\d+)\x00")
 # Clause boundaries for deciding which facts a claim word is about (issue #33).
 _CLAUSE_RE = re.compile(r"[;:()\[\]—–]|,(?!\d{3})|\s-\s")
-_QUOTED_RE = re.compile(r"'([^']+)'|‘([^’]+)’|“([^”]+)”|\\?\"([^\"]+)\\?\"")
+# A single-quoted phrase may hold an apostrophe ("LOVD's") or a prime
+# after a digit ("3' end"), issue #49.
+_QUOTED_RE = re.compile(r"'((?:[^']|(?<=\w)'(?=\w)|(?<=\d)')+)'(?!\w)|‘([^’]+)’|“([^”]+)”|\\?\"([^\"]+)\\?\"")
 # "A vs B" between two facts sets them side by side; it claims no order
 # (issue #41).
 _JUXTAPOSITION = {"vs", "versus"}

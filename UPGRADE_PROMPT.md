@@ -69,7 +69,7 @@ vibepaper diff --against <branch point>   # facts: only the changes you meant (t
 
 ### Expected render changes (Step 2)
 
-- None. If `vibepaper claims extract` is run (below), the render must stay byte-identical: compare `--md` builds before and after.
+- None. If `vibepaper claims extract` is run (below), the render must stay the same apart from trailing whitespace (an end-of-line lint-ok left a space): compare `--md` builds before and after with `diff -Z`.
 
 ### Behaviour changes (Step 3)
 
@@ -84,7 +84,7 @@ vibepaper diff --against <branch point>   # facts: only the changes you meant (t
 
 | Feature | Find candidates | Adopt |
 |---|---|---|
-| **Claims sidecars** ([#48](https://github.com/SACGF/vibepaper/issues/48)) | Ask the author whether they want checks inline or beside the prose. Count `grep -c "{% assert\|lint-ok" paper/*.md` | If the author wants sidecars: `vibepaper claims extract --dry-run`, review the quotes (each should read as the wording it checks, and be at least three words), then `vibepaper claims extract`. Confirm `vibepaper lint` has no more findings, `vibepaper check` passes and an `--md` build is byte-identical. Commit the `.claims.toml` files |
+| **Claims sidecars** ([#48](https://github.com/SACGF/vibepaper/issues/48)) | Ask the author whether they want checks inline or beside the prose. Count `grep -c "{% assert\|lint-ok" paper/*.md` | If the author wants sidecars: `vibepaper claims extract --dry-run`, review the quotes (each should read as the wording it checks, and be at least three words), then `vibepaper claims extract`. Confirm `vibepaper lint` has no more findings, `vibepaper check` passes and an `--md` build is identical (`diff -Z`, ignoring trailing whitespace). Commit the `.claims.toml` files |
 | **`pp` and `fraction_delta`** ([#44](https://github.com/SACGF/vibepaper/issues/44)) | `grep -nE '\* *100\)? *\| *dp\([0-9]\) *\}\} *pp\|pp\b' paper/*.md`, and differences of two shares | `{{ (a.rate - b.rate) \| pp(1) }}` when both are typed `fraction`; or emit a `FractionDelta` from the producer (`fraction_delta` in the CSV) |
 | **Word limits** ([#47](https://github.com/SACGF/vibepaper/issues/47)) | A journal submission guide in the repo, or limits in the agent docs | Add `[limits]` to `paper.toml` and run `vibepaper wordcount`. Report any limit already exceeded |
 | **Typed frozen constants** ([#46](https://github.com/SACGF/vibepaper/issues/46)) | `paper/frozen_facts.csv` rows for literature values, constants in producer scripts that the prose cites | Add a `type` column (`vibepaper freeze ns.field --value V --type fraction --reason "..."`), then use `pct` on them |

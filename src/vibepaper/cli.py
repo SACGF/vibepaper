@@ -515,7 +515,8 @@ def _run_build(args):
             config["name"] = args.name
 
     if args.facts_dir:
-        config["facts_dir"] = args.facts_dir
+        # Relative to the working directory, as lint/check/diff take it (issue #49)
+        config["facts_dir"] = str(Path(args.facts_dir).resolve())
 
     output_dir = (
         Path(args.output_dir).resolve()
