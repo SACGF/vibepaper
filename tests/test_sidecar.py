@@ -270,3 +270,23 @@ def test_extract_refuses_a_new_finding_even_if_the_total_is_level(tmp_path):
     after = [Finding("a.md", 2, "unchecked", "A {{x}} rose.", ["rose"]),
              Finding("a.md", 4, "number", "B 0.06.", ["0.06"], detail="hand-typed number '0.06'")]
     assert [f.kind for f in _new_findings(before, after)] == ["number"]
+
+
+def test_extract_multiline_lint_ok_and_exact_render(tmp_path):
+    # Issue #52: a lint-ok over several lines split the paragraph, and
+    # removing tags changed whitespace in the render
+    md = tmp_path / "results.md"
+    md.write_text(
+        "Labs reclassified zero of {{ f.a }} records. {#\nlint-ok: zero defines the group\n#}\n"
+        "Labs never revisit {{ f.b }} of records. {# lint-ok: never defines it #}\n\n"
+        "a {{ f.a }}. {# lint-ok: x\ny #} The rest rose {{ f.b }}. {% assert f.b > 0 %}\n"
+        "Next line.\n")
+    env = make_jinja_env(tmp_path)
+    ctx = {"f": {"a": 1, "b": 2}}
+    rendered = env.from_string(md.read_text()).render(**ctx)
+    res = extract(md, tmp_path, env, ctx)
+    oks = [e for e in res.toml.split("\n\n") if e.startswith("[[ok]]")]
+    assert any('"Labs reclassified zero' in e or 'reclassified zero of' in e for e in oks)
+    assert not any("never" in e and "zero" in e for e in oks)
+    write(res, md)
+    assert env.from_string(md.read_text()).render(**ctx) == rendered

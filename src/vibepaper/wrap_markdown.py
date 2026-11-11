@@ -76,10 +76,19 @@ def wrap_line(line: str, width: int) -> str:
 
 def wrap_file(text: str, width: int) -> str:
     in_code_block = False
+    in_comment = False
     result_lines: list[str] = []
 
     for line in text.split("\n"):
-        if line.strip().startswith("```"):
+        if in_comment:
+            # HTML comments (include-csv directives and their YAML) are left as
+            # they are (issue #52).
+            result_lines.append(line)
+            in_comment = "-->" not in line
+        elif not in_code_block and "<!--" in line:
+            result_lines.append(line)
+            in_comment = "-->" not in line[line.rindex("<!--"):]
+        elif line.strip().startswith("```"):
             in_code_block = not in_code_block
             result_lines.append(line)
         elif in_code_block:

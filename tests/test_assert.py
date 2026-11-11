@@ -99,3 +99,10 @@ def test_wrap_leaves_long_assert_line_alone():
     from vibepaper.wrap_markdown import wrap_file
     line = "{% assert residual.indel_count > residual.multi_locus_count, \"'dominated by indel-representation differences then paralog' order\" %}"
     assert wrap_file(line + "\nshort\n", 40) == line + "\nshort\n"
+
+
+def test_wrap_leaves_html_comments_alone():
+    # Issue #52: include-csv YAML was reflowed
+    from vibepaper.wrap_markdown import wrap_file
+    text = "<!-- include-csv: x.csv\ncolumns: [" + ", ".join(f"col_{i}" for i in range(30)) + "]\n-->\n"
+    assert wrap_file(text, 40) == text

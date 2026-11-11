@@ -131,3 +131,9 @@ def test_default_na_rep_is_dash(tmp_path):
     (tmp_path / "data.csv").write_text("a,b\n1,\n")
     result = process_content(directive("data.csv"), tmp_path)
     assert "—" in result
+
+
+def test_indented_directive_options_are_parsed():
+    # Issue #52: the README's indented example used to fail YAML silently
+    from vibepaper.tables import parse_options
+    assert parse_options("\n    columns: [a, b]\n    max_rows: 3\n") == {"columns": ["a", "b"], "max_rows": 3}

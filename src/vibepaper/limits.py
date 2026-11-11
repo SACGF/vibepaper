@@ -140,19 +140,46 @@ _LEGEND_RE = re.compile(r"^[ \t]*[*_]*\s*(?:Supplementary\s+)?(?:Figure|Fig\.)\s
 
 
 def figure_captions(text: str) -> list[tuple[int, str]]:
-    """(line, caption) of each figure legend in rendered Markdown: the alt
-    text of ``![caption](file)``, and each paragraph that starts with
-    "Figure N" (bold or not), which is how many papers write a legend under
-    an image with empty alt text."""
+    """(line, legend) of each figure legend in rendered Markdown.
+
+    A legend is a paragraph that starts "Figure N" (bold or not) plus the
+    paragraphs after it, up to the next heading, image, table, comment or
+    legend (issue #52). An image's alt text is its legend only when no such
+    paragraph follows the image."""
     text = _blank(_blank(_blank(text, _FENCED_RE), _HTML_COMMENT_RE), _TAG_RE)
-    out = [(1 + text.count("\n", 0, m.start()), m.group(1))
-           for m in _FIGURE_RE.finditer(text) if m.group(1).strip()]
-    line = 1
-    for para in re.split(r"(\n[ \t]*\n)", text):
-        if _LEGEND_RE.match(para.lstrip("\n")):
-            lead = len(para) - len(para.lstrip("\n"))
-            out.append((line + para.count("\n", 0, lead), " ".join(para.split())))
-        line += para.count("\n")
+    paras, line = [], 1
+    for chunk in re.split(r"(\n[ \t]*\n)", text):
+        if chunk.strip() and not re.fullmatch(r"\n[ \t]*\n", chunk):
+            lead = len(chunk) - len(chunk.lstrip("\n"))
+            paras.append((line + chunk.count("\n", 0, lead), chunk.strip()))
+        line += chunk.count("\n")
+
+    def is_image(p):
+        return bool(_FIGURE_RE.fullmatch(p.strip()))
+
+    def stops(p):
+        return (p.lstrip().startswith(("#", "|")) or is_image(p) or bool(_LEGEND_RE.match(p))
+                or not p.strip())
+
+    out = []
+    i = 0
+    while i < len(paras):
+        ln, p = paras[i]
+        if _LEGEND_RE.match(p):
+            parts = [p]
+            j = i + 1
+            while j < len(paras) and not stops(paras[j][1]):
+                parts.append(paras[j][1])
+                j += 1
+            out.append((ln, " ".join(" ".join(parts).split())))
+            i = j
+            continue
+        for m in _FIGURE_RE.finditer(p):
+            alt = m.group(1).strip()
+            followed = is_image(p) and i + 1 < len(paras) and _LEGEND_RE.match(paras[i + 1][1])
+            if alt and not followed:
+                out.append((ln + p.count("\n", 0, m.start()), alt))
+        i += 1
     return sorted(out)
 
 

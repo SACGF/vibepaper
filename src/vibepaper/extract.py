@@ -85,12 +85,17 @@ def _tags(text: str) -> list[_Tag]:
 
 
 def _neutralise(text: str, tags: list[_Tag]) -> str:
-    """``text`` with each of ``tags`` replaced by a same-length empty comment,
-    so lines, paragraphs and sentence offsets don't move."""
+    """``text`` with each of ``tags`` made inert at the same length, so lines,
+    paragraphs and sentence offsets don't move: an assert becomes a comment
+    and a lint-ok a plain comment. The text inside is kept, so a tag spread
+    over several lines doesn't leave an empty line that splits the paragraph
+    (issue #52)."""
     out, pos = [], 0
     for t in sorted(tags, key=lambda t: t.start):
         out.append(text[pos:t.start])
-        body = re.sub(r"[^\n]", " ", t.text[2:-2])
+        body = t.text[2:-2].replace("#}", "  ")
+        if t.kind == "ok":
+            body = body.replace("lint-ok", "lint_no", 1)
         out.append("{#" + body + "#}")
         pos = t.end
     out.append(text[pos:])
@@ -239,29 +244,22 @@ def _lint_ok_reason(tag: str) -> str:
 
 
 def _remove_tags(text: str, tags: list[_Tag]) -> str:
-    """Delete ``tags`` from ``text``; a line left empty by it goes too."""
-    spans = sorted((t.start, t.end) for t in tags)
-    out_lines = []
-    pos = 0
-    for line in text.split("\n"):
-        end = pos + len(line)
-        removed = [(max(s, pos), min(e, end)) for s, e in spans if s < end + 1 and e > pos]
-        if removed:
-            kept, cur = [], pos
-            for s, e in removed:
-                kept.append(text[cur:s])
-                cur = e
-            kept.append(text[cur:end])
-            new = "".join(kept)
-            if not new.strip():
-                pos = end + 1
-                continue
-            new = re.sub(r"[ \t]+$", "", re.sub(r"(?<=\S)[ \t]{2,}(?=\S)", " ", new))
-            out_lines.append(new)
+    """Delete ``tags`` from ``text`` so it renders exactly as before: a tag
+    alone on its line(s) goes with its line, as it rendered (issue #23); a
+    tag inside a line is cut out exactly, and an assert also takes the
+    newline after it, which it consumed when rendered (issue #52)."""
+    for t in sorted(tags, key=lambda t: t.start, reverse=True):
+        s, e = t.start, t.end
+        line_start = text.rfind("\n", 0, s) + 1
+        line_end = text.find("\n", e)
+        line_end = len(text) if line_end < 0 else line_end
+        if not text[line_start:s].strip() and not text[e:line_end].strip():
+            text = text[:line_start] + text[min(line_end + 1, len(text)):]
+        elif t.kind == "assert" and text.startswith("\n", e):
+            text = text[:s] + text[e + 1:]
         else:
-            out_lines.append(line)
-        pos = end + 1
-    return "\n".join(out_lines)
+            text = text[:s] + text[e:]
+    return text
 
 
 def extract(path: Path, project_root: Path, env, context=None, allowed_numbers=()) -> ExtractResult:

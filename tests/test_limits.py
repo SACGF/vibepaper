@@ -72,3 +72,12 @@ def test_each_figure_counts_legend_paragraphs(tmp_path):
     limits = parse_limits({"legends": {"files": ["f.md"], "max_words": 5, "each": "figure"}})
     counts = count_limits(limits, tmp_path)
     assert [(c.item, c.ok) for c in counts] == [("f.md:3", False), ("f.md:7", True)]
+
+
+def test_legend_runs_over_paragraphs_and_replaces_alt_text(tmp_path):
+    # Issue #52
+    (tmp_path / "f.md").write_text(
+        "![Short alt](a.png)\n\n**Figure 1. Title.** One two.\n\nThree four five.\n\n"
+        "## Next\n\n![Only alt here](b.png)\n")
+    assert figure_captions((tmp_path / "f.md").read_text()) == [
+        (3, "**Figure 1. Title.** One two. Three four five."), (9, "Only alt here")]

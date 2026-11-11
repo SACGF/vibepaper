@@ -37,8 +37,10 @@ DIRECTIVE_RE = re.compile(
 
 
 def parse_options(yaml_text: str) -> dict:
-    """Parse YAML options from the directive body."""
-    text = yaml_text.strip()
+    """Parse YAML options from the directive body. The body may be indented
+    as a block (the README's example is), issue #52."""
+    import textwrap
+    text = textwrap.dedent(yaml_text.strip("\n")).strip()
     if not text:
         return {}
     try:
