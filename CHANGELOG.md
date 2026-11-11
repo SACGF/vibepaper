@@ -4,6 +4,8 @@ All notable changes to vibepaper are documented here.
 
 ## [Unreleased]
 
+Upgrading from 0.9: give [`UPGRADE_PROMPT.md`](UPGRADE_PROMPT.md) to an agent in the paper's repo ([#28](https://github.com/SACGF/vibepaper/issues/28)). It records a baseline with 0.9, checks the render changes, and works through the behaviour changes and new features below.
+
 ### Added
 
 - **`vibepaper --version`** (also `-V`, and `python -m vibepaper`) prints the installed version ([#19](https://github.com/SACGF/vibepaper/issues/19)).

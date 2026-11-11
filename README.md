@@ -10,7 +10,7 @@ The name is a nod to vibe coding: give an AI agent write access to `output/facts
 
 ## Using an AI agent?
 
-Paste [`ONBOARDING_PROMPT.md`](ONBOARDING_PROMPT.md) into your LLM agent in the target project. It walks through auditing hardcoded numbers, writing facts CSVs from your analysis scripts, and verifying the build. Already using vibepaper? [`RETROFIT_PROMPT.md`](RETROFIT_PROMPT.md) converts the hand-written words next to your facts ("under 1%", "nearly a year") into word filters and asserts. The typical loop from there:
+Paste [`ONBOARDING_PROMPT.md`](ONBOARDING_PROMPT.md) into your LLM agent in the target project. It walks through auditing hardcoded numbers, writing facts CSVs from your analysis scripts, and verifying the build. Already using vibepaper? [`RETROFIT_PROMPT.md`](RETROFIT_PROMPT.md) converts the hand-written words next to your facts ("under 1%", "nearly a year") into word filters and asserts. Moving to a new vibepaper release? [`UPGRADE_PROMPT.md`](UPGRADE_PROMPT.md) checks what the upgrade changes and adopts the new features. The typical loop from there:
 
 - Agent reads existing paper sections and analysis scripts
 - Agent writes/updates `output/facts/*.csv` after each analysis run
@@ -394,6 +394,8 @@ Changed but renders the same (1): `benchmark.grch38_load_time_s` (5)
 ### Retrofitting an existing paper
 
 [`RETROFIT_PROMPT.md`](RETROFIT_PROMPT.md) is an agent prompt for papers that already use vibepaper. It works through the `vibepaper lint` output and converts each flagged sentence to a word filter, an assert, or a documented `lint-ok`.
+
+[`UPGRADE_PROMPT.md`](UPGRADE_PROMPT.md) is the prompt for moving a paper to a new vibepaper release. It records a baseline render with the old version, checks that the upgrade changes only what the release notes say, works through the behaviour changes, and finds candidates for each new feature (frozen facts, provenance, typed facts, `lint --unused`, `lint --numbers`, ...).
 
 ---
 
