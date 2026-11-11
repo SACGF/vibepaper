@@ -26,7 +26,7 @@ from jinja2.ext import Extension
 
 from .assertions import AssertExtension, FactAssertionError, collect_failures
 from .errors import ConfigError
-from .facts import FILTER_REFUSES, FactTypeError, check_filter, keep_type, pct as filter_pct, typed, untyped
+from .facts import FILTER_REFUSES, FactTypeError, check_filter, keep_type, pct as filter_pct, pp as filter_pp, typed, untyped
 from .provenance import KEY as PROVENANCE_KEY, read_provenance
 from .tolerances import claim_tests
 from .words import DEFAULT_SPELL_OUT_UP_TO, FILTERS as WORD_FILTERS
@@ -259,6 +259,7 @@ def make_jinja_env(
 
     env.filters["commas"] = filter_commas
     env.filters["pct"] = filter_pct
+    env.filters["pp"] = filter_pp
     env.filters["fold"] = filter_fold
     env.filters["dp"] = filter_dp
     env.filters["fmt"] = filter_fmt

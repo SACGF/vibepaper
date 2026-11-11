@@ -45,10 +45,24 @@ TOTALITY_WORDS = frozenset(CLAIM_WORDS["totality"])
 _ALL_WORDS = sorted({w for ws in CLAIM_WORDS.values() for w in ws}, key=len, reverse=True)
 
 
+# Uses of a claim word that make no claim (issue #41): "no longer current",
+# "no later than", and "all" as a denominator ("12% of all variants").
+_NOT_A_CLAIM = {
+    "no": r"(?!\s+(?:longer|later)\b)",
+    "all": r"",
+}
+_NOT_A_CLAIM_BEFORE = {
+    "all": r"(?<!\bof\s)",
+}
+
+
 def _pattern(word: str) -> str:
     body = r"\s+".join(re.escape(part) for part in word.split())
-    lead = "" if word.startswith("-") else r"\b"
-    return lead + body + r"\b"
+    # A word inside a hyphenated compound ("3'-most", "left-most",
+    # "all-cause", "over-represented") is not a claim (issue #41). "-fold"
+    # is matched with its hyphen.
+    lead = "" if word.startswith("-") else r"(?<![\w-])"
+    return _NOT_A_CLAIM_BEFORE.get(word, "") + lead + body + r"(?![\w-])" + _NOT_A_CLAIM.get(word, "")
 
 
 CLAIM_RE = re.compile("|".join(_pattern(w) for w in _ALL_WORDS), re.IGNORECASE)

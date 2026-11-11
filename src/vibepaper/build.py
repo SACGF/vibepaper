@@ -32,6 +32,7 @@ from .render import (
 from .tables import process_file as render_tables
 from .errors import ConfigError
 from .frozen import apply_frozen
+from .limits import parse_limits
 from .tolerances import claim_tests
 
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -53,6 +54,7 @@ def load_config(config_path: Path) -> dict:
       paper.frozen_facts    = "paper/frozen_facts.csv"  (values kept from an earlier run)
       lint.unused_ok        = []  (facts `lint --unused` may skip; globs on ns.field)
       lint.allowed_numbers  = []  (design values `lint --numbers` accepts, e.g. "95%")
+      limits                = {}  (journal word limits, checked by lint; issue #47)
     """
     with open(config_path, "rb") as fh:
         raw = tomllib.load(fh)
@@ -65,6 +67,7 @@ def load_config(config_path: Path) -> dict:
         claim_tests(raw.get("claims"))
     except ValueError as exc:
         raise ConfigError(str(exc)) from None
+    limits = parse_limits(raw.get("limits", {}), str(config_path))
 
     return {
         "sections":      paper["sections"],
@@ -81,6 +84,7 @@ def load_config(config_path: Path) -> dict:
         "frozen_facts":  paper.get("frozen_facts", "paper/frozen_facts.csv"),
         "lint_unused_ok": list(raw.get("lint", {}).get("unused_ok", [])),
         "lint_allowed_numbers": [str(n) for n in raw.get("lint", {}).get("allowed_numbers", [])],
+        "limits":        limits,
     }
 
 
@@ -101,6 +105,7 @@ def minimal_config(sections: list[str], name: str | None = None) -> dict:
         "frozen_facts":  "paper/frozen_facts.csv",
         "lint_unused_ok": [],
         "lint_allowed_numbers": [],
+        "limits":        [],
     }
 
 
@@ -455,6 +460,9 @@ def run_build(
     assert_failures: list[str] = []
     for section in all_sections:
         section_path = _resolve(section, project_root)
+        # The section's claims sidecar (issue #48) is checked like its
+        # inline asserts.
+        assert_failures.extend(sidecar_failures(section_path, project_root, jinja_env, context))
         try:
             out = render_jinja(section_path, build_jinja, context, jinja_env)
         except AssertionsFailed as exc:
@@ -512,6 +520,36 @@ def run_build(
             supp_rendered = concatenate_sections(build_paper, config["supplementary"])
             supp_md.write_text(supp_rendered)
             print(f"Done: {supp_md}")
+
+
+def sidecar_failures(section_path: Path, project_root: Path, env, context: dict) -> list[str]:
+    """Failed (or unevaluable) asserts in a section's claims sidecar, as the
+    build reports them (issue #48)."""
+    from .lint import _shown
+    from .sidecar import describe_failure, evaluate, load, sidecar_path
+
+    side = sidecar_path(section_path)
+    if not side.exists():
+        return []
+    entries = load(side, _shown(side, project_root))
+    where = {}
+    if section_path.exists():
+        name = _shown(section_path, project_root)
+        from .lint import file_sentences
+        from .sidecar import match_entries
+        for m in match_entries(entries, file_sentences(section_path.read_text())):
+            if len(m.sentences) == 1:
+                where.setdefault(m.entry.line, f"{name}:{m.sentences[0][1]}")
+    out = []
+    for e in entries:
+        if e.kind == "ok":
+            continue
+        status, values, detail = evaluate(e, env, context)
+        if status == "FAIL":
+            out.append(describe_failure(e, values, detail, where.get(e.line, "")))
+        elif status in ("ERROR", "MISSING"):
+            out.append(f"{e.file}:{e.line}: {status.lower()}: {e.label}\n    {detail}")
+    return out
 
 
 def _resolve(path_str: str, project_root: Path) -> Path:

@@ -32,9 +32,11 @@ Google Docs sync needs the optional extra: `uv sync --extra sync`. PDF output us
 **Analysis commands**: these work on the *source* Markdown plus the facts context, not on a finished build.
 - `lint.py`: splits text into paragraphs and sentences and finds facts beside claim words (`claims.py`) that no word filter or assert covers. It also checks rounding, percent magnitude, mixed provenance, `--unused` facts, `--numbers` (hand-typed numbers) and CSV line endings. `{# lint-ok #}` scoping (one sentence, `lint-ok(words)`, `lint-ok-paragraph`) is handled by `_LintOk`/`_Acceptor`.
 - `check.py`: evaluates each `{% assert %}` on its own (PASS/FAIL/MISSING/ERROR). It reuses lint's comment/raw blanking.
+- `sidecar.py` / `extract.py`: claims sidecars (`results.claims.toml` beside `results.md`, issue #48). `sidecar.load` parses `[[claim]]`/`[[ok]]`/`[[check]]` entries; quotes are matched against `lint.file_sentences` (the same masked sentences lint uses), and `lint.Sidecar` turns matches into covered/accepted spans that `lint_text` consults. `build.sidecar_failures` and `check.check_sidecar` evaluate sidecar asserts through a synthesized `{% assert %}`. `extract.extract` decides what each inline tag covers by linting with only that tag in place (`lint_text(record=...)`).
+- `limits.py`: `[limits]` word limits counted on rendered text (`lint`, `wordcount`).
 - `diff.py`: diffs paragraphs and words against the build cache, diffs facts against `.last_facts.json`, a git ref (`--against`) or a directory (`--against-dir`), and lists the claim-word sentences that use a changed fact.
 
-`cli.py` (argparse subcommands: build (default), fetch-csl, wrap, diff, lint, check, freeze, sync) wires these together. Its helpers `_facts_context` and `_paper_env` build the same context and env for each non-build command. `ConfigError`, `TemplateRenderError` and `AssertionsFailed` print as `error: ...` with file:line, not as a traceback. Keep it that way.
+`cli.py` (argparse subcommands: build (default), fetch-csl, wrap, diff, lint, check, claims, wordcount, freeze, sync) wires these together. Its helpers `_facts_context` and `_paper_env` build the same context and env for each non-build command. `ConfigError`, `TemplateRenderError` and `AssertionsFailed` print as `error: ...` with file:line, not as a traceback. Keep it that way.
 
 ## Conventions
 

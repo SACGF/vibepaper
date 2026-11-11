@@ -199,6 +199,8 @@ It lists every sentence that has a `{{ fact }}` beside a claim word (rises, fall
   For judgement words ("close to", "comparable to"), define the tolerance once under `[claims]` in `paper.toml` (e.g. `close_to = { within_pct = 10 }`) and assert `{% assert x is close_to(95), "..." %}`.
 - **(c) Leave it and say why.** For true hedges and interpretive words ("just", "only", "striking"), add `{# lint-ok: reason #}` at the end of the sentence (it accepts only that sentence).
 
+Ask the author whether they want these checks inline or in **claims sidecars** (`paper/results.claims.toml` beside `paper/results.md`, with `[[claim]]` `quote`/`assert`, `[[ok]]` `quote`/`reason` and `[[check]]` entries; see the vibepaper README). Sidecars keep the prose plain Markdown plus `{{ facts }}`, which co-authors find easier to edit; default to them if the author has no preference. You can write the checks inline and run `vibepaper claims extract` at the end. If the repo has a journal submission guide, copy its word limits into `[limits]` in `paper.toml` and run `vibepaper wordcount`.
+
 Rules:
 - Never keep a magnitude or direction word as a literal beside a fact.
 - A derived value that a filter consumes is computed in the script, never in the template.

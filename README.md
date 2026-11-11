@@ -191,6 +191,7 @@ vibepaper uses [Jinja2](https://jinja.palletsprojects.com/) for template substit
 | `\| dp(n)` | `{{ mean \| dp(1) }}` | `9.2` |
 | `\| fold(n)` | `{{ ratio \| fold(1) }}` | `2.0-fold` |
 | `\| pct(n)` | `{{ rate \| pct(2) }}` | `1.53%` (only for a [typed](#typed-facts) fraction or percent) |
+| `\| pp(n, sign=False)` | `{{ (a.rate - b.rate) \| pp(1) }}` | `-6.8 pp` (a [typed](#typed-facts) change in share: the difference of two fractions, a `fraction_delta`, or a `percent`) |
 | `\| fmt(spec)` | `{{ v \| fmt('+.1f') }}` | `+3.7` |
 
 `dp` (decimal places) is for numbers that will have surrounding text (e.g. "mean TPV was 9.2"). Use `fmt` for any format string Python's `format()` accepts.
@@ -216,7 +217,7 @@ Mean transcripts per variant increased {{ vep.mean_fold | fold }} from
 vibepaper keeps the *digits* in a paper current. The *words next to the digits* also make claims about them: direction ("falls from"), magnitude ("under 1%", "two orders of magnitude"), approximation ("close to a year"), ordering ("dominated by A then B"), totality ("all 8,409,757"). When a facts CSV is refreshed, the number updates but the words do not, so the sentence can end up contradicting its own number. vibepaper gives you three tools for this, best first:
 
 1. **Word filters** generate the word from the fact, so the two cannot disagree.
-2. **`{% assert %}`** pins the condition a hand-written word depends on. The build fails if the condition stops holding.
+2. **Asserts** pin the condition a hand-written word depends on. The build fails if the condition stops holding. They can sit inline (`{% assert %}`) or in a [claims sidecar](#claims-sidecars-keep-the-checks-out-of-the-prose) beside the section, which keeps the prose free of markup.
 3. **`vibepaper lint`** and **`vibepaper diff`** list the sentences that neither of the above covers, so a re-read can start with them.
 
 ### Word filters
@@ -317,7 +318,9 @@ vibepaper lint            # sections from paper.toml
 vibepaper lint --check    # exit 1 if anything is flagged (CI)
 ```
 
-Lint lists every sentence that references a `{{ fact }}` and contains a claim word (rises, falls, higher, under, within, nearly, roughly, about, over, all, every, none, only, dominated, largest, most, doubled, -fold, versus, …), where nothing covers that word. Coverage is per claim word: a word is about the facts in its clause (split at commas, semicolons, colons, dashes and parentheses), or the nearest fact when its clause has none. It is covered when one of those facts has a word filter (including `fold`), or is read by an `{% assert %}` in the paragraph. So an assert about `r.indel_count` does not vouch for a sentence that shows only `r.total`, and an assert for "zero regressions" does not vouch for an "about" beside another fact in the same sentence. "A versus B" sits in one clause with both facts, so an assert comparing them covers it. When the heuristic picks the wrong fact, quote the wording in the assert's message: a claim word inside quotes (`{% assert c.regressions == 0, "'with zero regressions'" %}`) is covered in any sentence that uses a fact the assert reads:
+Lint lists every sentence that references a `{{ fact }}` and contains a claim word (rises, falls, higher, under, within, nearly, roughly, about, over, all, every, none, only, dominated, largest, most, doubled, -fold, versus, …), where nothing covers that word. Coverage is per claim word: a word is about the facts in its clause (split at commas, semicolons, colons, dashes and parentheses), or the nearest fact when its clause has none. It is covered when one of those facts has a word filter (including `fold`), or is read by an `{% assert %}` in the paragraph. So an assert about `r.indel_count` does not vouch for a sentence that shows only `r.total`, and an assert for "zero regressions" does not vouch for an "about" beside another fact in the same sentence. When the heuristic picks the wrong fact, quote the wording in the assert's message. A phrase quoted there (`{% assert r.fold >= 1.9, "'mean size doubled'" %}`) covers its claim words wherever it appears in the paragraph, whatever facts that sentence prints, so an assert on a derived fact (a fold, a ratio) covers a sentence that shows only its inputs. A single quoted claim word (`"'with zero regressions'"`) is also covered in any sentence that uses a fact the assert reads.
+
+Some uses of a claim word make no claim and are not flagged: a word inside a hyphenated compound ("3'-most", "left-most", "all-cause", "over-represented"), "no longer" and "no later", "of all" as a denominator ("12% of all citations"), and "vs"/"versus" set between two facts ("({{ a }} Mb vs {{ b }} Mb)"). A finding gives the line of the sentence, not of an assert above it. A table followed by prose with no blank line between them is linted as a table and a paragraph.
 
 ```
 paper/results.md:3: roughly, orders of magnitude, faster
@@ -330,21 +333,27 @@ paper/results.md:11: {{ bench.matched_pct | dp(1) }} renders '100.0' but the val
 
 The second kind of finding needs facts, and is reported even in covered paragraphs: a value that only *rounds* to 100.0 or 0.0 next to "every" or "none".
 
-`vibepaper lint --unused` also lists facts that the paper never references, so a column added by a re-run (a new residual category, say) doesn't go unmentioned. It searches the sections and the files they `{% include %}`. A namespace used as a whole (`{% for k, v in ns.items() %}`) counts as used. Skip facts that are unused on purpose with glob patterns in `paper.toml`:
+`vibepaper lint --unused` also lists facts that the paper never references, so a column added by a re-run (a new residual category, say) doesn't go unmentioned. It searches the sections, the files they `{% include %}` and their claims sidecars. A namespace used as a whole (`{% for k, v in ns.items() %}`) counts as used. The list is one line per facts file (`ns: 40 of 42 unused (a, b, c, ...)`); `-v` lists every fact. Skip facts that are unused on purpose with glob patterns in `paper.toml`:
 
 ```toml
 [lint]
 unused_ok = ["bench.raw_*", "clinvar_residual_positions.*"]
 ```
 
-`vibepaper lint --numbers` also flags numbers typed into prose and tables, when they look like results: decimals, and numbers with `%`, `pp`, `percent`, `-fold` or `x`. A result copied by hand from an old run looks the same as a fact, and lint can't otherwise see it. Every paragraph is checked, including ones with no `{{ fact }}` at all: a paragraph that was never converted is the one most likely to hold stale results. Plain integers ("Figure 2", "25 of 25"), version strings, headings, code and YAML front matter are not flagged. Most hits will be design values (titration levels, the nominal 95%, p < 0.05); list those once in `paper.toml`, or accept a paragraph with `{# lint-ok: reason #}`. Anything left is probably a result that should be a fact. When an assert in the paragraph compares a fact with the same literal (`{% assert x.offset < 0.29 %}` next to "about 0.29 percentage points"), the finding says so: that claim is checked against a number nobody re-measured.
+`vibepaper lint --numbers` also flags numbers typed into prose and tables, when they look like results: decimals, and numbers with `%`, `pp`, `percent`, `-fold` or `x`. A result copied by hand from an old run looks the same as a fact, and lint can't otherwise see it. Every paragraph is checked, including ones with no `{{ fact }}` at all: a paragraph that was never converted is the one most likely to hold stale results. Plain integers ("Figure 2", "25 of 25"), version strings, headings, code and YAML front matter are not flagged. Most hits will be design values (titration levels, the nominal 95%, p < 0.05); list those once in `paper.toml`, or accept them with an `[[ok]]` or `{# lint-ok: reason #}`. Anything left is probably a result that should be a fact. A table with four or more hand-typed numbers is one finding ("table with 24 hand-typed number(s) in 8 row(s) ... make it an include-csv"); `-v` lists each cell. When an assert in the paragraph compares a fact with the same literal (`{% assert x.offset < 0.29 %}` next to "about 0.29 percentage points"), the finding says so: that claim is checked against a number nobody re-measured.
 
 ```toml
 [lint]
 allowed_numbers = ["95%", "0.05", "0.1%", "0.5%", "1%", "1,000x"]
 ```
 
-Lint also lists facts CSVs whose line endings (CRLF or LF) differ from the rest of the facts directory. This is a note only and does not make `--check` fail.
+Lint ends with notes, which do not make `--check` fail, for checks that could not run or lists that have gone stale:
+
+- facts CSVs whose line endings (CRLF or LF) differ from the rest of the facts directory;
+- a facts namespace the sections use with no CSV in the facts directory (`check` reports its asserts as MISSING and `build` fails);
+- no facts file with a provenance sidecar, so the mixed-version check did not run;
+- with `--numbers`, `[lint] allowed_numbers` entries that match no number in the paper; with `--unused`, `unused_ok` patterns that match no fact;
+- no facts directory at all, so the rounding, type, provenance and stale lint-ok checks did not run.
 
 For a word that really is a hedge or a judgement ("just", "only", "striking"), accept it by adding `{# lint-ok: reason #}` at the end of (or inside) its sentence. It accepts that sentence only, so a claim added later to another sentence of the paragraph is still flagged. Between two sentences it belongs to the one before; on a line of its own above a paragraph (like an assert, it leaves no blank line in the output), to the first sentence.
 
@@ -357,7 +366,53 @@ Two other forms:
 - `{# lint-ok(every, most): reason #}` accepts only those words, anywhere in the paragraph. It also takes a hand-typed number (`lint-ok(0.05)`) or `%` for a percent that may print at the wrong magnitude.
 - `{# lint-ok-paragraph: reason #}` accepts the whole paragraph, e.g. one that quotes another paper's figures.
 
-A lint-ok accepts claim words, hand-typed numbers, percent-magnitude findings and a deliberate mix of tool versions (any lint-ok in the paragraph, see [provenance](#provenance-which-versions-produced-a-facts-file)). A fact that rounds to 100.0 or 0.0 beside "every" or "none" is still flagged. When facts are available, lint also reports a lint-ok that accepts nothing (the hedged word was edited out, or an assert now covers it), so stale ones don't pile up. Before deleting one, check why: if an assert now covers the word, the lint-ok's reason may still be worth keeping in the commit message.
+A lint-ok accepts claim words, hand-typed numbers, percent-magnitude findings and a deliberate mix of tool versions (any lint-ok in the paragraph, see [provenance](#provenance-which-versions-produced-a-facts-file)). A fact that rounds to 100.0 or 0.0 beside "every" or "none" is still flagged; a typed fraction of exactly 1.0 shown with `pct` is 100% and is not. When facts are available, lint also reports a lint-ok that accepts nothing (the hedged word was edited out, or an assert now covers it), so stale ones don't pile up. Before deleting one, check why: if an assert now covers the word, the lint-ok's reason may still be worth keeping in the commit message.
+
+### Claims sidecars: keep the checks out of the prose
+
+Inline asserts and lint-oks work, but in a paper that checks most of its claims they can outweigh the prose, which is hard for a co-author to edit by hand. A section can keep its checks beside it instead. `paper/results.md` gets `paper/results.claims.toml`:
+
+```toml
+[[claim]]
+quote  = "about a quarter of A"
+assert = "3.6 <= r.ratio_ab <= 4.4"
+
+[[claim]]
+quote  = "doubled from"
+assert = "r.fold is doubled"             # [claims] tolerances work as in an inline assert
+
+[[ok]]
+quote  = "the 3'-ward decile"
+reason = "positional term, not a claim"
+
+[[ok]]
+quote  = "~44% LoF discordance"
+reason = "cited from McCarthy 2014"      # also accepts a hand-typed number
+
+[[check]]                                # an invariant tied to no wording
+assert  = "r.a_n + r.b_n == r.total_n"
+message = "A and B partition the total"
+```
+
+The prose then holds only `{{ fact }}` references.
+
+- **A `quote` is matched against the source of one sentence** of the section (or one table row), ignoring case, `*` emphasis and line wrapping. `…` (or `...`, or a `{{ ... }}`) in a quote matches anything, so a quote need not spell out the facts: `"reached … per second"`. It must match exactly one sentence; lint asks for a longer quote when it matches several.
+- **A `[[claim]]` covers the claim words inside its quoted span**, whatever facts the sentence prints, so it needs no clause heuristics. `quote` may be a list, for a claim that several sentences rest on. An optional `message` replaces the quote in failure reports.
+- **An `[[ok]]` accepts the claim words and hand-typed numbers inside its span**, and a percent-magnitude or provenance finding in its sentence. `paragraph = true` accepts the whole paragraph. A `reason` is required.
+- **A `[[check]]` is an assert with no wording**, for invariants.
+- **When the wording changes, lint says so**: `results.claims.toml:12: quote 'about a quarter of A' no longer appears in paper/results.md: the wording changed, so re-check the claim and update the quote`. This fails `--check`. A person can rewrite the prose freely; lint then lists exactly the claims whose wording they touched.
+
+`build` and `check` evaluate every sidecar assert as they do inline ones, and a failure names the sidecar line and the sentence the quote matched:
+
+```
+paper/results.claims.toml:5: assertion failed: 'doubled from' (paper/results.md:12)
+    r.fold = 1.7
+    doubled: within 5% of the reference ([claims] in paper.toml)
+```
+
+`vibepaper claims show` prints each section with its claims under the sentences they match, for reviewing the checks beside the wording. `vibepaper claims extract` moves a section's inline `{% assert %}` and `{# lint-ok #}` tags into its sidecar. It works out what each tag covers by linting the section with only that tag in place, and quotes the shortest span (at least three words, or the phrase the assert's message quotes) that matches one sentence. An assert that covers no claim word becomes a `[[check]]`, and a lint-ok that accepts nothing is dropped. It lints before and after and refuses to write if there are more findings afterwards. `--dry-run` prints the entries. Review the quotes it chose. Tags inside `{% for %}` loops stay inline.
+
+Inline tags remain fully supported, and the two can be mixed in a section. Use whichever the paper's authors find easier to edit.
 
 ### `vibepaper check`: run the asserts without a build
 
@@ -373,7 +428,7 @@ MISSING  paper/discussion.md:67: 'cover close to nominal' (needs facts: depth_su
 3 assert(s): 1 pass, 1 fail, 1 missing.
 ```
 
-MISSING means the assert reads a facts file or field that isn't there yet. `vibepaper check --check` exits 1 on FAIL or ERROR but not on MISSING, so CI with partial facts still catches broken claims. Asserts inside `{% include %}`d files are not checked.
+Asserts in a section's [claims sidecar](#claims-sidecars-keep-the-checks-out-of-the-prose) are evaluated too, reported at their sidecar line. MISSING means the assert reads a facts file or field that isn't there yet. `vibepaper check --check` exits 1 on FAIL or ERROR but not on MISSING, so CI with partial facts still catches broken claims. Asserts inside `{% include %}`d files are not checked.
 
 ### `vibepaper diff`: what changed, and which words to re-read
 
@@ -401,6 +456,32 @@ For a PR that re-runs the analysis, `vibepaper diff --against <git ref>` compare
 
 Changed but renders the same (1): `benchmark.grch38_load_time_s` (5)
 ```
+
+### Word limits
+
+Journal limits (a 250-word abstract, a 4,000-word main text, 300-word figure legends) go in `paper.toml`:
+
+```toml
+[limits]
+abstract = { file = "paper/abstract.md", max_words = 250 }
+main     = { files = ["paper/introduction.md", "paper/results.md", "paper/discussion.md"], max_words = 4000 }
+legends  = { files = ["paper/figures.md"], max_words = 300, each = "figure" }
+```
+
+Words are counted in the text as the paper renders it, since facts and word filters change the count: a re-run that turns "three" into "twelve" or adds a hedge can push an abstract over its limit. Headings, tables, fenced code, YAML front matter, HTML comments (so `include-csv` directives), template tags, citations (`[@key]`) and figure lines (`![caption](file)`) are not counted. `each = "figure"` checks each figure caption on its own instead. `min_words` sets a lower bound. `vibepaper lint` reports a limit that is not met (it fails `--check`), and `vibepaper wordcount` prints each section's count and every limit:
+
+```
+paper/abstract.md        263
+paper/introduction.md    812
+...
+total                  4,391
+
+Limits ([limits] in paper.toml):
+  OVER  abstract: 263 words (max 250): 13 over
+  ok    main: 3,812 words (max 4,000)
+```
+
+A section that can't be rendered (facts missing) is counted from its source, with each `{{ fact }}` as one word, and marked as an estimate (`~`).
 
 ### Retrofitting an existing paper
 
@@ -452,13 +533,14 @@ n_samples,12,
 | Type | Meaning | Checked at load |
 |---|---|---|
 | `fraction` | share from 0 to 1; `pct` multiplies by 100 | 0 ≤ value ≤ 1 |
-| `percent` | already × 100 (a share or a change); `pct` shows it as is | a number |
+| `fraction_delta` | change in a share, -1 to 1; `pp` shows percentage points (× 100), `pct` refuses it | -1 ≤ value ≤ 1 |
+| `percent` | already × 100 (a share or a change); `pct` shows it as is, `pp` as points | a number |
 | `pvalue` | p- or q-value | 0 ≤ value ≤ 1 |
 | `count` | whole number | integer ≥ 0 |
 | `ratio` | e.g. a fold change | value > 0 |
 | `text` | kept exactly as written ("1.10" stays "1.10") | |
 
-A blank type is untyped and behaves as before, so you can type the percentages and p-values first, where the mistakes happen. A value out of its type's range fails the load with the file and line. Filters refuse a type they would mis-scale: `int`, `commas` and `number_word` refuse a fraction or p-value; `fold` and `orders_of_magnitude` want a ratio, not a percent or count; `within_pct` refuses a fraction. Typed values still compare and do arithmetic like numbers, and the result of arithmetic is untyped, so `{{ (rate * 100) | pct }}` is an error. `abs` and `round` keep the type, so a fall shown as a magnitude is `{{ x.delta_pct | abs | pct(0) }}`; `min` and `max` return one of the facts, type included.
+A blank type is untyped and behaves as before, so you can type the percentages and p-values first, where the mistakes happen. A value out of its type's range fails the load with the file and line. Filters refuse a type they would mis-scale: `int`, `commas` and `number_word` refuse a fraction or p-value; `fold` and `orders_of_magnitude` want a ratio, not a percent or count; `within_pct` refuses a fraction. Typed values still compare and do arithmetic like numbers, and the result of arithmetic is untyped, so `{{ (rate * 100) | pct }}` is an error. The exception is a difference: two `fraction` facts subtract to a `fraction_delta` and two `percent` facts to a `percent`, so a change in share is `{{ (late.rate - early.rate) | pp(1) }}` ("-6.8 pp"; `pp(1, sign=True)` gives "+6.8 pp" for a rise), never `{{ (d * 100) | dp(1) }} pp`. `abs` and `round` keep the type, so a fall shown as a magnitude is `{{ x.delta_pct | abs | pct(0) }}`; `min` and `max` return one of the facts, type included.
 
 `vibepaper lint` flags a percent that would print at the wrong magnitude: `{{ rate | dp(2) }}%` on a fraction, `{{ (share * 100) | dp }}%` on a percent, `{{ x | pct }}%` (a doubled sign), and an untyped value below 1 whose name suggests a fraction (`_rate`, `_frac`, `_share`, ...). `vibepaper diff` reports a type change, such as fraction 0.0153 → percent 1.53, as one change with the types rather than a +9900% jump.
 
@@ -511,6 +593,19 @@ benchmark.uta_remote_tps,0.13,"public UTA REST, measured 2025-06; not re-run"
 ```
 
 `build`, `diff`, `lint` and `check` apply this file on top of the facts CSVs, so a frozen value survives re-runs and never shows up in `vibepaper diff`. The build prints how many frozen facts it used. To update a frozen value from the current CSVs, run `freeze` again; to drop one, run `vibepaper freeze --remove benchmark.uta_remote_n`. You can also edit the file by hand. Set `frozen_facts` in `[paper]` to use another path.
+
+A frozen value keeps the type its facts CSV declares. An optional fourth `type` column types it explicitly. That also suits a **constant no script produces**, such as a value cited from another paper, which then gets its own namespace and the same type checks as a measured fact:
+
+```bash
+vibepaper freeze literature.kit_lod --value 0.003 --type fraction --reason "Smith 2020, Table 2"
+```
+
+```csv
+fact,value,reason,type
+literature.kit_lod,0.003,"Smith 2020, Table 2",fraction
+```
+
+`{{ literature.kit_lod | pct(1) }}` then prints "0.3%". A `type` that disagrees with the facts CSV's is an error.
 
 ### Provenance: which versions produced a facts file
 
@@ -753,6 +848,13 @@ unused_ok = ["bench.raw_*"]
 # Design values `vibepaper lint --numbers` accepts in prose.
 # Default: []
 allowed_numbers = ["95%", "0.05"]
+
+[limits]
+# Journal word limits, counted on the rendered text and checked by
+# `vibepaper lint` and `vibepaper wordcount`. Default: none.
+abstract = { file = "paper/abstract.md", max_words = 250 }
+main     = { files = ["paper/introduction.md", "paper/results.md", "paper/discussion.md"], max_words = 4000 }
+legends  = { files = ["paper/figures.md"], max_words = 300, each = "figure" }
 ```
 
 ### Word reference document
@@ -837,7 +939,7 @@ vibepaper wrap <FILE.md ...> [--width N] [--check]
   vibepaper wrap paper/*.md --check            # exit 1 if changes needed (CI)
 
 vibepaper lint [FILE.md ...] [--config FILE] [--facts-dir DIR] [--unused] [--numbers]
-               [--check]
+               [--check] [--verbose]
 
   List sentences that reference a {{ fact }} and contain a claim word
   (rises, within, nearly, all, every, dominated, ...) that nothing covers: no
@@ -845,8 +947,10 @@ vibepaper lint [FILE.md ...] [--config FILE] [--facts-dir DIR] [--unused] [--num
   and no {% assert %} in the paragraph that reads one. Also lists facts that round to 100.0/0.0
   beside "every"/"none". Mark a sentence {# lint-ok: reason #} to accept its
   wording ({# lint-ok(word): ... #} or {# lint-ok-paragraph: ... #} for wider
-  scope). --unused also lists facts the paper never references; --numbers
-  flags result-like numbers typed into prose and tables.
+  scope), or put the checks in a claims sidecar (results.claims.toml).
+  --unused also lists facts the paper never references; --numbers flags
+  result-like numbers typed into prose and tables. Checks [limits] too.
+  -v lists every hand-typed table cell and every unused fact.
 
   vibepaper lint                               # sections from paper.toml
   vibepaper lint --check                       # exit 1 if anything flagged (CI)
@@ -870,10 +974,23 @@ vibepaper diff [--config FILE] [--facts-dir DIR]
   vibepaper diff --against main --format md    # before/after facts table for a PR
   vibepaper diff --against-dir run2/facts      # second run: expose non-determinism
 
-vibepaper freeze NS.FIELD ... [--reason TEXT] [--remove] [--config FILE] [--facts-dir DIR]
+vibepaper claims {show,extract} [FILE.md ...] [--config FILE] [--facts-dir DIR]
+               [--dry-run] [--force]
+
+  show: print each section with its claims-sidecar entries under the
+  sentences they match. extract: move inline {% assert %} and {# lint-ok #}
+  tags into the section's sidecar; refuses if lint finds more afterwards.
+
+vibepaper wordcount [FILE.md ...] [--config FILE] [--facts-dir DIR] [--check]
+
+  Count each section's words as rendered, and check [limits] in paper.toml.
+
+vibepaper freeze NS.FIELD ... [--reason TEXT] [--remove] [--value V] [--type T]
+               [--config FILE] [--facts-dir DIR]
 
   Keep facts at their current values through later re-runs, in
-  paper/frozen_facts.csv (fact,value,reason). Commit the file.
+  paper/frozen_facts.csv (fact,value,reason[,type]). Commit the file.
+  --value records a value no facts CSV has (a cited constant).
 
 vibepaper sync [--config FILE] [--dry-run] [--verbose]
 

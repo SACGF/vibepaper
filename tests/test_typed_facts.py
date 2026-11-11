@@ -196,3 +196,30 @@ def test_abs_and_round_keep_the_type(render):
     assert render("{{ x.n | abs | commas }}", x=x) == "3"
     assert render("{{ x.r | round }}", x=x) == "0.0"       # out of range: untyped
     assert render("{{ -3.5 | abs }}") == "3.5"
+
+
+def test_fraction_delta_and_pp(tmp_path, ctx):
+    # Issue #44
+    from vibepaper.facts import FactTypeError, Fraction, FractionDelta, Percent, pp
+    from vibepaper.render import make_jinja_env
+    env = make_jinja_env(tmp_path)
+    a, b = Fraction(0.30), Fraction(0.368)
+    assert type(a - b) is FractionDelta
+    assert env.from_string("{{ (a - b) | pp }} {{ (b - a) | pp(1, sign=True) }} {{ (a - a) | pp }}"
+                           ).render(a=a, b=b) == "-6.8 pp +6.8 pp 0.0 pp"
+    assert env.from_string("{{ (p - q) | pp }}").render(p=Percent(5), q=Percent(7.5)) == "-2.5 pp"
+    assert env.from_string("{{ d | abs | pp }}").render(d=FractionDelta(-0.068)) == "6.8 pp"
+    with pytest.raises(FactTypeError, match="use pp|with \\| pp"):
+        env.from_string("{{ d | pct }}").render(d=FractionDelta(-0.068))
+    with pytest.raises(FactTypeError, match="untyped"):
+        pp(0.1)
+    with pytest.raises(FactTypeError, match="between -1 and 1"):
+        FractionDelta(-6.8)
+    # untyped arithmetic still drops the type
+    assert type(a - 0.1) is float
+
+
+def test_fraction_delta_loads_from_csv(tmp_path):
+    from vibepaper.render import load_facts
+    (tmp_path / "d.csv").write_text("field,value,type\nchange,-0.068,fraction_delta\n")
+    assert load_facts(tmp_path)["d"]["change"].fact_type == "fraction_delta"

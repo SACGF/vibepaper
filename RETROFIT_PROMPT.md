@@ -17,6 +17,9 @@ This paper uses [vibepaper](https://pypi.org/project/vibepaper/): every number i
   - `{{ x.n | number_word }}` → "three"
 - **`{% assert condition, "message" %}`** goes on the line directly above a sentence. It renders nothing, and the build fails, showing the fact values, if the condition is false.
 - **`{# lint-ok: reason #}`** at the end of a sentence accepts that sentence's wording as deliberate. `{# lint-ok(word): reason #}` accepts only that word in the paragraph; `{# lint-ok-paragraph: reason #}` the whole paragraph.
+- **Claims sidecars** keep the asserts and lint-oks out of the prose: `paper/results.claims.toml` beside `paper/results.md` holds `[[claim]]` (`quote` = the wording, `assert` = the condition), `[[ok]]` (`quote`, `reason`) and `[[check]]` (`assert` only) entries. A quote must match exactly one sentence of the section; `…` stands for a fact. `vibepaper claims extract` moves inline tags into the sidecar, and `vibepaper claims show` prints the prose with its claims.
+
+**Before you start, ask the author** whether they want the checks inline (`{% assert %}` above each sentence) or in claims sidecars, which leave the prose as plain Markdown plus `{{ facts }}` and are easier for co-authors to edit by hand. If they have no preference, use sidecars. The steps below show inline syntax; for sidecars write the same condition as a `[[claim]]` whose `quote` is the claim wording (at least three words, enough to match one sentence), or work inline and run `vibepaper claims extract` at the end.
 - **`vibepaper lint`** lists sentences with a fact beside a claim word that nothing covers: no word filter on a fact the word is about (one in its clause, else the nearest), and no assert in the paragraph that reads one or quotes the word in its message, plus facts that round to 100.0/0.0 beside "every"/"none", and percents that may print at the wrong magnitude.
 - **`vibepaper check`** evaluates every assert against the facts that exist, without a build: PASS, FAIL (with values), or MISSING when a facts file isn't there yet. Use it when some facts are slow to produce.
 - **`vibepaper diff`** (after a build) reports which facts changed by name and which unchecked sentences use them.
@@ -98,7 +101,7 @@ Read each changed paragraph in the `vibepaper diff` output and confirm it still 
 
 ### Step 5: Summarise
 
-Report: how many sentences got word filters, asserts and lint-ok each; any claims that were **wrong** with the current facts (old wording → new); new derived facts added to scripts; and any hand-kept re-check list you removed. If the project has CI, add `vibepaper lint --check`.
+Report: how many sentences got word filters, asserts and lint-ok each (and whether they are inline or in sidecars); any claims that were **wrong** with the current facts (old wording → new); new derived facts added to scripts; and any hand-kept re-check list you removed. If the project has CI, add `vibepaper lint --check`.
 
 ### Going forward
 

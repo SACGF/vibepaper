@@ -15,8 +15,12 @@ error. A vertical facts CSV may carry an optional third ``type`` column::
 A blank type means untyped, which behaves as before. Types:
 
 - ``fraction``: a share from 0 to 1. ``pct`` multiplies it by 100.
+- ``fraction_delta``: a change in a share, from -1 to 1. ``pp`` shows it in
+  percentage points (-0.068 → "-6.8 pp"); ``pct`` refuses it. The difference
+  of two ``fraction`` facts is one (issue #44).
 - ``percent``: already multiplied by 100 (a share or a change, so any sign).
-  ``pct`` prints it as is.
+  ``pct`` prints it as is, ``pp`` as points. The difference of two
+  ``percent`` facts is a ``percent``.
 - ``pvalue``: a p- or q-value, 0 to 1.
 - ``count``: a whole number, 0 or more.
 - ``ratio``: a positive ratio such as a fold change.
@@ -27,13 +31,15 @@ a type refuse it, e.g. ``int`` on a fraction or ``fold`` on a percent.
 
 Loaded values are ``float``/``int``/``str`` subclasses with a ``fact_type``
 attribute, so comparisons and arithmetic in templates work as before.
-Arithmetic returns a plain number, which drops the type. ``abs`` and
+Arithmetic returns a plain number, which drops the type, except that
+subtracting two fractions gives a ``fraction_delta`` and two percents a
+``percent`` (issue #44). ``abs`` and
 ``round`` keep it (a magnitude or rounding of a percent is still a percent,
 issue #35), as do ``min`` and ``max``, which return one of their inputs.
 
 Producers write typed CSVs with :func:`write_facts`::
 
-    from vibepaper.facts import write_facts, Fraction, Percent, Count
+    from vibepaper.facts import write_facts, Fraction, FractionDelta, Percent, Count
     write_facts("output/facts/herding.csv",
                 herding_rate_near=Fraction(0.0153), n_studies=Count(184))
 """
@@ -64,6 +70,31 @@ class Fraction(float):
                                 + (" (is it a percent?)" if 1 < v <= 100 else ""))
         return super().__new__(cls, v)
 
+    # The difference of two shares is a change in share (issue #44), the one
+    # exception to "arithmetic drops the type".
+    def __sub__(self, other):
+        if fact_type(other) == "fraction":
+            return FractionDelta(float(self) - float(other))
+        return float.__sub__(self, other)
+
+    def __rsub__(self, other):
+        if fact_type(other) == "fraction":
+            return FractionDelta(float(other) - float(self))
+        return float.__rsub__(self, other)
+
+
+class FractionDelta(float):
+    """A change in a share, from -1 to 1 (-0.068 means 6.8 percentage points
+    lower). ``pp`` shows it as percentage points (issue #44)."""
+    fact_type = "fraction_delta"
+
+    def __new__(cls, value):
+        v = _finite(float(value), cls.fact_type)
+        if not -1 <= v <= 1:
+            raise FactTypeError(f"fraction_delta must be between -1 and 1, got {v:g}"
+                                + (" (is it in percentage points?)" if 1 < abs(v) <= 100 else ""))
+        return super().__new__(cls, v)
+
 
 class Percent(float):
     """Already multiplied by 100 (1.53 means 1.53%)."""
@@ -71,6 +102,17 @@ class Percent(float):
 
     def __new__(cls, value):
         return super().__new__(cls, _finite(float(value), cls.fact_type))
+
+    # The difference of two percents is a percent (in points), issue #44.
+    def __sub__(self, other):
+        if fact_type(other) == "percent":
+            return Percent(float(self) - float(other))
+        return float.__sub__(self, other)
+
+    def __rsub__(self, other):
+        if fact_type(other) == "percent":
+            return Percent(float(other) - float(self))
+        return float.__rsub__(self, other)
 
 
 class PValue(float):
@@ -111,7 +153,7 @@ class Text(str):
     fact_type = "text"
 
 
-TYPES = {cls.fact_type: cls for cls in (Fraction, Percent, PValue, Count, Ratio, Text)}
+TYPES = {cls.fact_type: cls for cls in (Fraction, FractionDelta, Percent, PValue, Count, Ratio, Text)}
 
 
 def fact_type(value) -> str | None:
@@ -150,20 +192,27 @@ def typed(raw: str, type_name: str):
 # Types each filter refuses, and why. Untyped values are accepted everywhere
 # (except by pct, which needs a fraction or percent).
 _NUMERIC = "is text, not a number"
+_DELTA = "would print a change in share as a plain number; use pp"
 FILTER_REFUSES = {
     "int": {"fraction": "would round a 0–1 share to 0 or 1; use pct",
+            "fraction_delta": _DELTA,
             "pvalue": "would round a p-value to 0", "text": _NUMERIC},
     "commas": {"fraction": "would round a 0–1 share to 0 or 1; use pct",
+               "fraction_delta": _DELTA,
                "pvalue": "would round a p-value to 0", "text": _NUMERIC},
     "number_word": {"fraction": "would print a 0–1 share as a plain number; use pct",
+                    "fraction_delta": _DELTA,
                     "pvalue": "would print a p-value as a plain number", "text": _NUMERIC},
     "fold": {"fraction": "expects a ratio, got a fraction", "percent": "expects a ratio, got a percent",
+             "fraction_delta": "expects a ratio, got a fraction_delta",
              "pvalue": "expects a ratio, got a p-value", "count": "expects a ratio, got a count",
              "text": _NUMERIC},
     "orders_of_magnitude": {"fraction": "expects a ratio, got a fraction",
+                            "fraction_delta": "expects a ratio, got a fraction_delta",
                             "percent": "expects a ratio, got a percent",
                             "pvalue": "expects a ratio, got a p-value", "text": _NUMERIC},
     "within_pct": {"fraction": "expects a percent difference, got a fraction (×100 first)",
+                   "fraction_delta": "expects a percent difference, got a fraction_delta; use pp",
                    "pvalue": "expects a percent difference, got a p-value", "text": _NUMERIC},
     "dp": {"text": _NUMERIC},
     "fmt": {"text": _NUMERIC},
@@ -204,6 +253,9 @@ def pct(value, decimals: int = 1) -> str:
         return f"{float(value) * 100:.{decimals}f}%"
     if t == "percent":
         return f"{float(value):.{decimals}f}%"
+    if t == "fraction_delta":
+        raise FactTypeError(f"pct: {value!s} is typed fraction_delta, a change in share: "
+                            "show it in percentage points with | pp (issue #44)")
     got = f"typed {t}" if t else "untyped"
     raise FactTypeError(
         f"pct: {value!s} is {got}. pct needs a fact typed fraction (0–1, multiplied "
@@ -211,6 +263,29 @@ def pct(value, decimals: int = 1) -> str:
         "facts CSV (field,value,type); see issue #12. "
         f"For an untyped percent use {{{{ value | dp({decimals}) }}}}%"
     )
+
+
+def pp(value, decimals: int = 1, sign: bool = False) -> str:
+    """A change in share as percentage points: FractionDelta(-0.068) →
+    '-6.8 pp', Percent(3.1) → '3.1 pp'. ``sign=True`` adds a '+' to rises.
+    A fraction_delta is × 100, a percent shown as is; anything else, untyped
+    included, is an error (issue #44)."""
+    t = fact_type(value)
+    if t == "fraction_delta":
+        v = float(value) * 100
+    elif t == "percent":
+        v = float(value)
+    else:
+        got = f"typed {t}" if t else "untyped"
+        raise FactTypeError(
+            f"pp: {value!s} is {got}. pp needs a change in share: a fact typed "
+            "fraction_delta (-1 to 1, multiplied by 100) or percent (shown as is), or "
+            "the difference of two fraction facts (issue #44)"
+        )
+    text = f"{v:{'+' if sign else ''}.{decimals}f}"
+    if text.lstrip("+-").strip("0.") == "":
+        text = text.lstrip("+-")      # no "-0.0 pp"
+    return f"{text} pp"
 
 
 def _cell(value) -> str:

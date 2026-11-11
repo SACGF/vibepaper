@@ -12,7 +12,9 @@ Each assert is reported as:
   with a number)
 
 Asserts inside ``{% include %}``d files and inside ``{% for %}`` loops (whose
-variables only exist during a render) are not evaluated. See issue #21.
+variables only exist during a render) are not evaluated. See issue #21. The
+asserts of a section's claims sidecar (``results.claims.toml``, issue #48) are
+evaluated too.
 """
 
 import re
@@ -91,6 +93,21 @@ def check_text(text: str, filename: str, env, context: dict) -> list[AssertResul
     return results
 
 
+def check_sidecar(path: Path, project_root: Path, env, context: dict) -> list[AssertResult]:
+    """Evaluate the asserts of a section's claims sidecar (issue #48)."""
+    from .lint import _shown
+    from .sidecar import evaluate, load, sidecar_path
+
+    side = sidecar_path(path)
+    results = []
+    for e in load(side, _shown(side, project_root)):
+        if e.kind == "ok":
+            continue
+        status, values, detail = evaluate(e, env, context)
+        results.append(AssertResult(e.file, e.line, status, e.label, values, detail))
+    return results
+
+
 def check_files(paths: list[Path], project_root: Path, env, context: dict) -> list[AssertResult]:
     results: list[AssertResult] = []
     for path in paths:
@@ -101,12 +118,13 @@ def check_files(paths: list[Path], project_root: Path, env, context: dict) -> li
         except ValueError:
             name = str(path)
         results.extend(check_text(path.read_text(), name, env, context))
+        results.extend(check_sidecar(path, project_root, env, context))
     return results
 
 
 def format_results(results: list[AssertResult]) -> str:
     if not results:
-        return "No {% assert %} tags found."
+        return "No {% assert %} tags or claims-sidecar asserts found."
     counts = {s: sum(r.status == s for r in results) for s in ("PASS", "FAIL", "MISSING", "ERROR")}
     out = [r.format() for r in results]
     summary = ", ".join(f"{n} {s.lower()}" for s, n in counts.items() if n)

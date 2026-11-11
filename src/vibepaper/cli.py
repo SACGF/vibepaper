@@ -147,6 +147,10 @@ def main():
             "paragraph, {# lint-ok-paragraph: ... #} the whole paragraph).\n\n"
             "When facts are available, also flags facts that round to 100.0 / 0.0\n"
             "beside a totality word ('every', 'none').\n\n"
+            "A section's claims sidecar (results.claims.toml beside results.md)\n"
+            "covers the claim words its quotes span; a quote that no longer matches\n"
+            "one sentence is flagged. [limits] in paper.toml (journal word limits)\n"
+            "are checked too.\n\n"
             "Lints the sections in paper.toml, or the FILE.md arguments."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -176,7 +180,12 @@ def main():
     )
     lint_parser.add_argument(
         "--check", action="store_true",
-        help="Exit 1 if anything is flagged (for CI).",
+        help="Exit 1 if anything is flagged (for CI). Notes do not fail.",
+    )
+    lint_parser.add_argument(
+        "--verbose", "-v", action="store_true",
+        help="List every hand-typed table cell and every unused fact, instead of a "
+             "summary per table and per facts file.",
     )
 
     # -- check --------------------------------------------------------------
@@ -211,6 +220,76 @@ def main():
         help="Exit 1 if any assert is FAIL or ERROR (MISSING does not fail).",
     )
 
+    # -- claims -------------------------------------------------------------
+    claims_parser = subparsers.add_parser(
+        "claims",
+        help="Show or create claims sidecars (results.claims.toml beside results.md).",
+        description=(
+            "Claims sidecars keep a section's asserts and lint-oks beside it\n"
+            "instead of inside the prose. Each [[claim]] quotes the wording it\n"
+            "checks; lint matches the quote to one sentence of the section.\n\n"
+            "  vibepaper claims show [FILE.md ...]     prose with its checks interleaved\n"
+            "  vibepaper claims extract [FILE.md ...]  move inline {% assert %} and\n"
+            "                                          {# lint-ok #} tags into the sidecar\n\n"
+            "extract lints each section before and after, and refuses to write if the\n"
+            "result has more findings (use --force to write anyway)."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    claims_parser.add_argument("action", choices=["show", "extract"])
+    claims_parser.add_argument(
+        "files", nargs="*", type=Path, metavar="FILE.md",
+        help="Sections (default: sections in paper.toml).",
+    )
+    claims_parser.add_argument(
+        "--config", default="paper.toml", metavar="FILE",
+        help="paper.toml config file (default: paper.toml in cwd).",
+    )
+    claims_parser.add_argument(
+        "--facts-dir", metavar="DIR",
+        help="Facts directory (overrides paper.toml).",
+    )
+    claims_parser.add_argument(
+        "--dry-run", action="store_true",
+        help="extract: print the sidecar entries and change nothing.",
+    )
+    claims_parser.add_argument(
+        "--force", action="store_true",
+        help="extract: write even if lint finds more after than before.",
+    )
+
+    # -- wordcount ----------------------------------------------------------
+    wordcount_parser = subparsers.add_parser(
+        "wordcount",
+        help="Count the words of each section and check [limits] in paper.toml.",
+        description=(
+            "Count the words of each section as the paper renders it (facts and\n"
+            "word filters filled in), leaving out headings, tables, code,\n"
+            "citations and figure captions. Then check each [limits] entry of\n"
+            "paper.toml, e.g.\n\n"
+            "  [limits]\n"
+            "  abstract = { file = \"paper/abstract.md\", max_words = 250 }\n"
+            "  legends  = { files = [\"paper/figures.md\"], max_words = 300, each = \"figure\" }"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    wordcount_parser.add_argument(
+        "files", nargs="*", type=Path, metavar="FILE.md",
+        help="Sections to count (default: sections in paper.toml).",
+    )
+    wordcount_parser.add_argument(
+        "--config", default="paper.toml", metavar="FILE",
+        help="paper.toml config file (default: paper.toml in cwd).",
+    )
+    wordcount_parser.add_argument(
+        "--facts-dir", metavar="DIR",
+        help="Facts directory (overrides paper.toml).",
+    )
+    wordcount_parser.add_argument(
+        "--check", action="store_true",
+        help="Exit 1 if a [limits] entry is exceeded.",
+    )
+
     # -- freeze -------------------------------------------------------------
     freeze_parser = subparsers.add_parser(
         "freeze",
@@ -224,12 +303,21 @@ def main():
             "Example:\n"
             "  vibepaper freeze benchmark.uta_remote_tps benchmark.uta_remote_n \\\n"
             "      --reason 'public UTA, measured 2025-06; not re-run'\n"
-            "  vibepaper freeze --remove benchmark.uta_remote_n"
+            "  vibepaper freeze --remove benchmark.uta_remote_n\n"
+            "  vibepaper freeze literature.kit_lod --value 0.003 --type fraction \\\n"
+            "      --reason 'Smith 2020, Table 2'"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     freeze_parser.add_argument("facts", nargs="+", metavar="NS.FIELD", help="Facts to freeze.")
     freeze_parser.add_argument("--reason", default="", help="Why the value is kept (recommended).")
+    freeze_parser.add_argument(
+        "--value", metavar="VALUE",
+        help="Record this value instead of the current one, for a fact no facts CSV has "
+             "(e.g. a value cited from another paper). One fact at a time.")
+    freeze_parser.add_argument(
+        "--type", dest="fact_type", default="", metavar="TYPE",
+        help="Type the frozen value: fraction, fraction_delta, percent, pvalue, count, ratio or text.")
     freeze_parser.add_argument("--remove", action="store_true",
                                help="Unfreeze: drop the facts from the frozen file.")
     freeze_parser.add_argument(
@@ -275,7 +363,8 @@ def main():
     # -- Parse --------------------------------------------------------------
     # If the first arg doesn't look like a subcommand, treat it as a build.
     # This keeps `vibepaper paper.toml` and `vibepaper intro.md` working.
-    known_commands = {"build", "fetch-csl", "wrap", "diff", "lint", "check", "freeze", "sync",
+    known_commands = {"build", "fetch-csl", "wrap", "diff", "lint", "check", "claims",
+                      "wordcount", "freeze", "sync",
                       "-h", "--help", "-V", "--version"}
     if len(sys.argv) > 1 and sys.argv[1] not in known_commands:
         args = build_parser.parse_args(sys.argv[1:])
@@ -289,7 +378,7 @@ def main():
 
     try:
         _dispatch(args)
-    except ConfigError as e:
+    except (ConfigError, TemplateRenderError) as e:
         print(f"error: {e}", file=sys.stderr)
         sys.exit(1)
 
@@ -307,6 +396,10 @@ def _dispatch(args):
         _run_lint(args)
     elif args.command == "check":
         _run_check(args)
+    elif args.command == "claims":
+        _run_claims(args)
+    elif args.command == "wordcount":
+        _run_wordcount(args)
     elif args.command == "freeze":
         _run_freeze(args)
     elif args.command == "sync":
@@ -713,9 +806,13 @@ def _run_lint(args):
         context = _facts_context(facts_dir, config, project_root)
         env = _paper_env(project_root, config, facts_dir)
 
+    allowed = config.get("lint_allowed_numbers", [])
+    matched: set = set()
     findings = lint_files(paths, project_root, env, context, numbers=args.numbers,
-                          allowed_numbers=config.get("lint_allowed_numbers", []))
+                          allowed_numbers=allowed, verbose=args.verbose, matched_allowed=matched)
+    findings.extend(_limit_findings(config, project_root, env, context, args.files))
     print(format_findings(findings))
+    notes = []
     if facts_dir.exists():
         endings = line_ending_issues(facts_dir, project_root)
         if endings:
@@ -725,21 +822,116 @@ def _run_lint(args):
                 "lineterminator=\"\\n\") or pandas to_csv):"
             )
             print("\n".join("  " + e for e in endings))
+        notes.extend(_missing_namespace_notes(paths, project_root, env, context))
+        notes.extend(_provenance_notes(context))
+    else:
+        notes.append(f"facts directory {_rel(facts_dir, project_root)} not found: the rounding, "
+                     "type, provenance and stale lint-ok checks did not run")
+    if args.numbers:
+        from .lint import _normalise_number
+        stale = [a for a in allowed if _normalise_number(a) not in matched]
+        if stale:
+            notes.append("[lint] allowed_numbers entries that match no number in the paper "
+                         "(remove them): " + ", ".join(repr(a) for a in stale))
     unused = []
     if args.unused:
         if context is None:
             print(f"\n--unused needs facts; {facts_dir} not found.", file=sys.stderr)
         else:
-            unused = unused_facts(context, paths, project_root, facts_dir,
-                                  config.get("lint_unused_ok", []))
+            unused_ok = config.get("lint_unused_ok", [])
+            unused = unused_facts(context, paths, project_root, facts_dir, unused_ok)
             if unused:
                 print(f"\n{len(unused)} fact(s) the paper never references "
                       "(use them, or list them under [lint] unused_ok in paper.toml):")
-                print("\n".join("  " + u for u in unused))
+                print(_format_unused(unused, context, args.verbose))
             else:
                 print("\nEvery fact is referenced.")
+            stale_globs = _stale_unused_ok(unused_ok, context)
+            if stale_globs:
+                notes.append("[lint] unused_ok patterns that match no fact (remove them): "
+                             + ", ".join(repr(g) for g in stale_globs))
+    if notes:
+        print("\nNotes (these do not fail --check):")
+        print("\n".join("  " + n for n in notes))
     if args.check and (findings or unused):
         sys.exit(1)
+
+
+def _rel(path: Path, root: Path) -> str:
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        return str(path)
+
+
+def _limit_findings(config, project_root, env, context, files) -> list:
+    """[limits] exceeded, as lint findings (issue #47). Skipped when lint is
+    given FILE.md arguments."""
+    from .limits import count_limits
+    from .lint import Finding
+
+    if files or not config.get("limits"):
+        return []
+    out = []
+    for c in count_limits(config["limits"], project_root, env, context):
+        if not c.ok:
+            out.append(Finding(c.file, c.line, "limit", c.limit.name, detail=c.format()))
+    return out
+
+
+def _missing_namespace_notes(paths, project_root, env, context) -> list[str]:
+    """Facts namespaces the sections use that the facts directory lacks
+    (issue #45). ``check`` and ``build`` report them as MISSING / errors."""
+    from jinja2 import meta
+
+    missing: dict = {}
+    for path in paths:
+        if not path.exists():
+            continue
+        try:
+            names = meta.find_undeclared_variables(env.parse(path.read_text()))
+        except Exception:
+            continue
+        for n in names - set(context):
+            missing.setdefault(n, []).append(_rel(path, project_root))
+    return [f"'{n}' is used in {', '.join(sorted(set(files)))} but there is no {n}.csv in the "
+            "facts directory" for n, files in sorted(missing.items())]
+
+
+def _provenance_notes(context) -> list[str]:
+    namespaces = [v for k, v in context.items() if isinstance(v, dict)]
+    if namespaces and not any("_prov" in v for v in namespaces):
+        return ["no facts file has a .provenance.json sidecar, so the mixed-tool-version "
+                "check did not run (see the README's \"Facts provenance\")"]
+    return []
+
+
+def _stale_unused_ok(globs, context) -> list[str]:
+    import fnmatch
+
+    names = [f"{ns}.{f}" for ns, v in context.items() if isinstance(v, dict) for f in v]
+    return [g for g in globs if not any(fnmatch.fnmatchcase(n, g) for n in names)]
+
+
+def _format_unused(unused: list[str], context: dict, verbose: bool) -> str:
+    """One line per facts file with its unused count, listing the facts when
+    there are few; every fact with -v (issue #45)."""
+    if verbose:
+        return "\n".join("  " + u for u in unused)
+    by_ns: dict = {}
+    for u in unused:
+        ns, _, f = u.partition(".")
+        by_ns.setdefault(ns, []).append(f)
+    lines = []
+    for ns, fields in by_ns.items():
+        total = sum(1 for k in context.get(ns, {}) if not str(k).startswith("_"))
+        if len(fields) <= 3:
+            lines.append(f"  {ns}: " + ", ".join(fields))
+        else:
+            lines.append(f"  {ns}: {len(fields)} of {total} unused ({', '.join(fields[:3])}, ...)")
+    if len(by_ns) < len(unused):
+        lines.append("  (-v lists every fact)")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -758,6 +950,99 @@ def _run_check(args):
     results = check_files(paths, project_root, env, context)
     print(format_results(results))
     if args.check and any(r.status in ("FAIL", "ERROR") for r in results):
+        sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# claims
+# ---------------------------------------------------------------------------
+
+def _run_claims(args):
+    from .extract import extract, show, write
+    from .lint import lint_files
+
+    config, project_root, paths, facts_dir = _section_inputs(args)
+    if args.action == "show":
+        for path in paths:
+            if path.exists():
+                print(show(path, project_root))
+                print()
+        return
+
+    context = _facts_context(facts_dir, config, project_root) if facts_dir.exists() else None
+    env = _paper_env(project_root, config, facts_dir)
+    allowed = config.get("lint_allowed_numbers", [])
+    total = {"claims": 0, "checks": 0, "oks": 0}
+    for path in paths:
+        if not path.exists():
+            continue
+        before = lint_files([path], project_root, env, context, numbers=True, allowed_numbers=allowed)
+        res = extract(path, project_root, env, context, allowed)
+        if not res.toml and not res.dropped:
+            print(f"{res.file}: no inline asserts or lint-oks")
+            continue
+        for t in res.kept:
+            print(f"{res.file}:{t.line}: left inline (inside a {{% for %}} loop)")
+        for t in res.dropped:
+            print(f"{res.file}:{t.line}: dropped a lint-ok that accepts nothing: {' '.join(t.text.split())}")
+        if args.dry_run:
+            print(f"# {res.sidecar}\n{res.toml}")
+            continue
+        from .sidecar import sidecar_path
+        old_text = path.read_text()
+        side = sidecar_path(path)
+        old_side = side.read_text() if side.exists() else None
+        write(res, path)
+        after = lint_files([path], project_root, env, context, numbers=True, allowed_numbers=allowed)
+        if len(after) > len(before) and not args.force:
+            path.write_text(old_text)
+            if old_side is None:
+                side.unlink(missing_ok=True)
+            else:
+                side.write_text(old_side)
+            print(f"{res.file}: not written: lint finds {len(after)} after vs {len(before)} before "
+                  "(--dry-run shows the entries, --force writes anyway):")
+            from .lint import format_findings
+            seen = {(f.file, f.line, f.kind, tuple(f.words)) for f in before}
+            print(format_findings([f for f in after if (f.file, f.line, f.kind, tuple(f.words)) not in seen]))
+            continue
+        print(f"{res.file}: {res.claims} claim(s), {res.checks} check(s), {res.oks} ok(s) → "
+              f"{res.sidecar}; lint findings {len(before)} → {len(after)}")
+        for k in total:
+            total[k] += getattr(res, k)
+    if not args.dry_run:
+        print(f"Moved {total['claims']} claim(s), {total['checks']} check(s) and {total['oks']} ok(s). "
+              "Review the quotes, then run vibepaper lint and vibepaper check.")
+
+
+# ---------------------------------------------------------------------------
+# wordcount
+# ---------------------------------------------------------------------------
+
+def _run_wordcount(args):
+    from .limits import count_limits, count_sections
+
+    config, project_root, paths, facts_dir = _section_inputs(args)
+    env = context = None
+    if facts_dir.exists():
+        context = _facts_context(facts_dir, config, project_root)
+        env = _paper_env(project_root, config, facts_dir)
+    counts = count_sections(paths, project_root, env, context)
+    width = max((len(c.file) for c in counts), default=10)
+    for c in counts:
+        figs = f"   ({len(c.figures)} figure caption(s))" if c.figures else ""
+        print(f"{c.file:<{width}}  {'~' if c.estimate else ' '}{c.words:>7,}{figs}")
+    total = sum(c.words for c in counts)
+    print(f"{'total':<{width}}  {'~' if any(c.estimate for c in counts) else ' '}{total:>7,}")
+    if any(c.estimate for c in counts):
+        print("~ estimate: the section could not be rendered (facts missing), so each {{ fact }} "
+              "counted as one word")
+    limits = count_limits(config.get("limits", []), project_root, env, context)
+    if limits:
+        print("\nLimits ([limits] in paper.toml):")
+        for c in limits:
+            print(("  ok    " if c.ok else "  OVER  " if c.over > 0 else "  UNDER ") + c.format())
+    if args.check and any(not c.ok for c in limits):
         sys.exit(1)
 
 
@@ -782,7 +1067,8 @@ def _run_freeze(args):
             facts_dir = Path(args.facts_dir).resolve() if args.facts_dir \
                 else project_root / config["facts_dir"]
             # Current values from the CSVs, not from the frozen file
-            messages = freeze(path, _facts_context(facts_dir), args.facts, args.reason)
+            messages = freeze(path, _facts_context(facts_dir), args.facts, args.reason,
+                              args.value, args.fact_type)
     except ValueError as e:
         print(f"error: {e}", file=sys.stderr)
         sys.exit(1)

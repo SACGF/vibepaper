@@ -65,6 +65,30 @@ vibepaper diff --against <branch point>   # facts: only the changes you meant (t
 
 ---
 
+## 0.12 → next release
+
+### Expected render changes (Step 2)
+
+- None. If `vibepaper claims extract` is run (below), the render must stay byte-identical: compare `--md` builds before and after.
+
+### Behaviour changes (Step 3)
+
+- **Fewer claim-word false positives** ([#41](https://github.com/SACGF/vibepaper/issues/41)): words in hyphenated compounds ("3'-most", "all-cause"), "no longer", "of all" as a denominator, and "vs"/"versus" between two facts. Lint-oks that accepted them are now reported as accepting nothing: remove them.
+- **A phrase quoted in an assert's message covers its words anywhere in the paragraph** ([#42](https://github.com/SACGF/vibepaper/issues/42)). Asserts that were extended (or lint-oks added) only because the sentence printed the inputs of the asserted fact can be simplified: quote the phrase in the message instead. Lint-oks made redundant show up as accepting nothing.
+- **Tables followed directly by prose are linted apart** ([#43](https://github.com/SACGF/vibepaper/issues/43)). Expect a finding that moved from the table's line to the prose's, and a blank line after such tables is still worth adding for readability.
+- **The rounding check accepts a typed fraction of exactly 1.0 with `pct`** ([#40](https://github.com/SACGF/vibepaper/issues/40)). Drop any workaround (a lint-ok, or a note in the project's agent docs).
+- **`--numbers` summarises a hand-typed table** as one finding, and `--unused` prints one line per facts file ([#45](https://github.com/SACGF/vibepaper/issues/45)). Use `-v` for every cell or fact. A pasted results table should become an `<!-- include-csv: ... -->` of a CSV the analysis writes.
+- **Lint prints notes** for checks that could not run (a missing facts namespace, no provenance sidecars) and stale `allowed_numbers` / `unused_ok` entries ([#45](https://github.com/SACGF/vibepaper/issues/45)). They don't fail `--check`. Act on each: produce the missing facts or fix the reference, write provenance sidecars, delete stale allowlist entries.
+
+### New features (Step 4)
+
+| Feature | Find candidates | Adopt |
+|---|---|---|
+| **Claims sidecars** ([#48](https://github.com/SACGF/vibepaper/issues/48)) | Ask the author whether they want checks inline or beside the prose. Count `grep -c "{% assert\|lint-ok" paper/*.md` | If the author wants sidecars: `vibepaper claims extract --dry-run`, review the quotes (each should read as the wording it checks, and be at least three words), then `vibepaper claims extract`. Confirm `vibepaper lint` has no more findings, `vibepaper check` passes and an `--md` build is byte-identical. Commit the `.claims.toml` files |
+| **`pp` and `fraction_delta`** ([#44](https://github.com/SACGF/vibepaper/issues/44)) | `grep -nE '\* *100\)? *\| *dp\([0-9]\) *\}\} *pp\|pp\b' paper/*.md`, and differences of two shares | `{{ (a.rate - b.rate) \| pp(1) }}` when both are typed `fraction`; or emit a `FractionDelta` from the producer (`fraction_delta` in the CSV) |
+| **Word limits** ([#47](https://github.com/SACGF/vibepaper/issues/47)) | A journal submission guide in the repo, or limits in the agent docs | Add `[limits]` to `paper.toml` and run `vibepaper wordcount`. Report any limit already exceeded |
+| **Typed frozen constants** ([#46](https://github.com/SACGF/vibepaper/issues/46)) | `paper/frozen_facts.csv` rows for literature values, constants in producer scripts that the prose cites | Add a `type` column (`vibepaper freeze ns.field --value V --type fraction --reason "..."`), then use `pct` on them |
+
 ## 0.11 → 0.12
 
 ### Expected render changes (Step 2)

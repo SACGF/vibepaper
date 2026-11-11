@@ -74,7 +74,8 @@ _FACT = "\x00{}\x00"
 class Finding:
     file: str
     line: int
-    kind: str                 # "unchecked", "rounding", "number", "provenance", "type" or "lint-ok"
+    kind: str                 # "unchecked", "rounding", "number", "provenance", "type",
+                              # "lint-ok", "claims" (a sidecar quote) or "limit"
     sentence: str
     words: list[str] = field(default_factory=list)
     detail: str = ""
@@ -83,7 +84,7 @@ class Finding:
         text = " ".join(self.sentence.split())
         if len(text) > 160:
             text = text[:157] + "..."
-        if self.kind in ("rounding", "number", "provenance", "type", "lint-ok"):
+        if self.kind in ("rounding", "number", "provenance", "type", "lint-ok", "claims", "limit"):
             return f"{self.file}:{self.line}: {self.detail}\n    \"{text}\""
         return f"{self.file}:{self.line}: {', '.join(self.words)}\n    \"{text}\""
 
@@ -109,6 +110,86 @@ def _paragraphs(text: str):
         yield start, "\n".join(buf)
 
 
+_TAG_ONLY_RE = re.compile(r"^\s*(\{[%#].*?[%#]\}\s*)+$")
+
+
+def _blocks(text: str):
+    """Paragraphs, split where table lines stop and prose starts (or the
+    reverse) with no blank line between: pandoc renders both, but they are
+    linted apart (issue #43). A line holding only ``{% %}`` / ``{# #}`` tags
+    goes with the lines after it."""
+    for start, para in _paragraphs(text):
+        lines = para.split("\n")
+        kinds = [None if _TAG_ONLY_RE.match(l) else l.lstrip().startswith("|") for l in lines]
+        nxt = None
+        for i in range(len(kinds) - 1, -1, -1):
+            if kinds[i] is None:
+                kinds[i] = nxt
+            else:
+                nxt = kinds[i]
+        run_start = 0
+        for i in range(1, len(lines) + 1):
+            if i == len(lines) or (kinds[i] is not None and kinds[i - 1] is not None
+                                   and kinds[i] != kinds[i - 1]):
+                yield start + run_start, "\n".join(lines[run_start:i])
+                run_start = i
+
+
+@dataclass
+class _Block:
+    start: int
+    para: str
+    table: bool
+    masked: str
+    exprs: list
+    oks: list
+    sentences: list           # [(text, offset)]
+
+    def line_of(self, offset: int, sentence: str = "") -> int:
+        lead = len(sentence) - len(sentence.lstrip())
+        return self.start + self.masked.count("\n", 0, offset + lead)
+
+
+def _parse_block(start: int, para: str) -> _Block:
+    exprs: list[str] = []
+
+    def mask(m):
+        exprs.append(m.group(1))
+        return _FACT.format(len(exprs) - 1)
+
+    masked = _EXPR_RE.sub(mask, para)
+    oks = _lint_oks(masked, start)
+    masked = _blank_out(masked, _STMT_RE)
+    masked = _blank_out(masked, _COMMENT_RE)
+    table = _is_table(para)
+    # A table is checked row by row, prose sentence by sentence.
+    parts = masked.split("\n") if table else _SENTENCE_SPLIT_RE.split(masked)
+    sentences, pos = [], 0
+    for s in parts:
+        offset = masked.index(s, pos)
+        sentences.append((s, offset))
+        pos = offset + len(s)
+    return _Block(start, para, table, masked, exprs, oks, sentences)
+
+
+def _prepare(text: str) -> str:
+    for regex in (_RAW_RE, _HTML_COMMENT_RE, _FENCED_CODE_RE, _FRONT_MATTER_RE):
+        text = _blank_out(text, regex)
+    return text
+
+
+def file_sentences(text: str) -> list[tuple]:
+    """``(key, line, masked sentence)`` for every sentence and table row of a
+    section source; the unit a claims-sidecar quote is matched against."""
+    out = []
+    for start, para in _blocks(_prepare(text)):
+        b = _parse_block(start, para)
+        for n, (s, offset) in enumerate(b.sentences):
+            if s.strip():
+                out.append(((b.start, n), b.line_of(offset, s), s))
+    return out
+
+
 @dataclass
 class _LintOk:
     """One ``{# lint-ok #}`` comment in a paragraph (issue #31)."""
@@ -121,12 +202,16 @@ class _LintOk:
 
 
 def _lint_oks(para: str, start: int) -> list[_LintOk]:
-    out = []
-    for k, m in enumerate(_LINT_OK_TAG_RE.finditer(para)):
+    out, per_line = [], {}
+    for m in _LINT_OK_TAG_RE.finditer(para):
         words = frozenset(
             _normalise_number(w) for w in re.split(r",(?!\d{3})", m.group("words") or "") if w.strip()
         )
-        out.append(_LintOk((start, k), start + para.count("\n", 0, m.start()), m.start(),
+        line = start + para.count("\n", 0, m.start())
+        # Keyed by line, not by paragraph, so passes that split a paragraph
+        # differently (tables, issue #43) agree on which lint-ok is which.
+        k = per_line[line] = per_line.get(line, -1) + 1
+        out.append(_LintOk((line, k), line, m.start(),
                            bool(m.group("para")) and not words, words, m.group(0)))
     return out
 
@@ -169,6 +254,74 @@ class _Acceptor:
         return False
 
 
+class Sidecar:
+    """A section's claims sidecar matched against its sentences (issue #48):
+    which spans each ``[[claim]]`` covers and each ``[[ok]]`` accepts, and the
+    findings for quotes that match no sentence or several."""
+
+    def __init__(self, entries: list, text: str = "", section: str = ""):
+        from .sidecar import match_entries
+
+        self.entries = entries
+        self.claims: dict = {}       # sentence key -> [(start, end)]
+        self.oks: dict = {}          # sentence key -> [(start, end, entry key)]
+        self.ok_blocks: dict = {}    # block start -> [entry key]
+        self.ok_lines: dict = {}     # line -> [entry key]
+        self.findings: list[Finding] = []
+        self.active_oks: list = []
+        if not entries:
+            return
+        sentences = file_sentences(text)
+        for m in match_entries(entries, sentences):
+            e = m.entry
+            if not m.sentences:
+                self.findings.append(Finding(
+                    e.file, e.line, "claims", m.quote,
+                    detail=f"quote '{m.quote}' no longer appears in {section}: the wording "
+                           "changed, so re-check the claim and update the quote"))
+                continue
+            if len(m.sentences) > 1:
+                where = ", ".join(str(line) for _, line, _ in m.sentences[:5])
+                self.findings.append(Finding(
+                    e.file, e.line, "claims", m.quote,
+                    detail=f"quote '{m.quote}' matches {len(m.sentences)} sentences in "
+                           f"{section} (lines {where}): lengthen it so it matches one"))
+                continue
+            [(key, line, span)] = m.sentences
+            if e.kind == "claim":
+                self.claims.setdefault(key, []).append(span)
+            elif e.kind == "ok":
+                if e not in self.active_oks:
+                    self.active_oks.append(e)
+                self.oks.setdefault(key, []).append((*span, e.key))
+                self.ok_lines.setdefault(line, []).append(e.key)
+                if e.paragraph:
+                    self.ok_blocks.setdefault(key[0], []).append(e.key)
+
+    def covers(self, key: tuple, start: int, end: int) -> bool:
+        return any(s <= start and end <= e for s, e in self.claims.get(key, []))
+
+    def accepts(self, key: tuple, start: int, end: int, used: set) -> bool:
+        for s, e, k in self.oks.get(key, []):
+            if s <= start and end <= e:
+                used.add(k)
+                return True
+        for k in self.ok_blocks.get(key[0], []):
+            used.add(k)
+            return True
+        return False
+
+    def accepts_line(self, lines, used: set) -> bool:
+        for line in lines:
+            for k in self.ok_lines.get(line, []):
+                used.add(k)
+                return True
+        return False
+
+
+_NO_SIDECAR = Sidecar([])
+
+
 _PARSE_ENV = Environment(extensions=[AssertExtension])
 
 
@@ -184,7 +337,8 @@ def _refs(source: str) -> set[str]:
 
 
 def _is_table(para: str) -> bool:
-    return all(l.lstrip().startswith("|") for l in para.splitlines() if l.strip())
+    return all(l.lstrip().startswith("|") for l in para.splitlines()
+               if l.strip() and not _TAG_ONLY_RE.match(l))
 
 
 def _normalise_number(token: str) -> str:
@@ -203,21 +357,31 @@ def _assert_literals(tag: str) -> set[float]:
     }
 
 
-def _hand_typed_numbers(prose: str, allowed: set[str], literals: set[float]) -> list[tuple[str, str]]:
-    """(token, description) of result-like numbers typed into ``prose``."""
+def _hand_typed_numbers(prose: str, allowed: set[str], literals: set[float],
+                        matched: set | None = None) -> list[tuple[str, str, int, int]]:
+    """(token, description, start, end) of result-like numbers typed into
+    ``prose``. Allowed entries that match are added to ``matched``."""
     out = []
-    for m in _NUMBER_RE.finditer(_NOT_PROSE_RE.sub(" ", prose)):
+    for m in _NUMBER_RE.finditer(_blank_out(prose, _NOT_PROSE_RE)):
         num, unit = m.group("num"), m.group("unit")
         if "." not in num and not unit:
             continue
         token = m.group(0).strip()
-        if _normalise_number(token) in allowed or _normalise_number(num) in allowed:
+        hit = next((a for a in (_normalise_number(token), _normalise_number(num)) if a in allowed), None)
+        if hit is not None:
+            if matched is not None:
+                matched.add(hit)
             continue
         detail = f"hand-typed number '{token}'"
         if float(num.replace(",", "")) in literals:
             detail += " (an assert compares a fact with this same literal)"
-        out.append((token, detail))
+        out.append((token, detail, m.start(), m.end()))
     return out
+
+
+# A table with more hand-typed cells than this gets one summary finding
+# instead of one per cell, unless verbose (issue #45).
+TABLE_SUMMARY_AT = 4
 
 
 def lint_text(
@@ -228,67 +392,72 @@ def lint_text(
     numbers: bool = False,
     allowed_numbers=(),
     used: set | None = None,
+    sidecar: "Sidecar | None" = None,
+    verbose: bool = False,
+    matched_allowed: set | None = None,
+    record: dict | None = None,
 ) -> list[Finding]:
     """Lint one template source. ``env`` and ``context`` enable the rounding
     check. ``numbers`` also flags result-like numbers typed into prose and
     tables, except those in ``allowed_numbers`` (issues #22, #36). Headings,
-    code and YAML front matter are skipped.
-    The keys of the lint-oks that accept something are added to ``used``."""
+    code and YAML front matter are skipped. ``sidecar`` holds the section's
+    claims sidecar (issue #48).
+    The keys of the lint-oks that accept something are added to ``used``.
+    ``record``, if given, collects ``(sentence key, start, end, word)`` for
+    the claim words no filter or assert covers (``"uncovered"``), those still
+    unaccepted after lint-oks (``"unaccepted"``) and the hand-typed numbers
+    not accepted (``"numbers"``); ``vibepaper claims extract`` uses it."""
     used = set() if used is None else used
+    sidecar = sidecar or _NO_SIDECAR
+    if record is not None:
+        for k in ("uncovered", "unaccepted", "numbers"):
+            record.setdefault(k, set())
     allowed = {_normalise_number(a) for a in allowed_numbers}
-    text = _blank_out(text, _RAW_RE)
-    text = _blank_out(text, _HTML_COMMENT_RE)
     findings: list[Finding] = []
 
-    text = _blank_out(text, _FENCED_CODE_RE)
-    text = _blank_out(text, _FRONT_MATTER_RE)
-    for start, para in _paragraphs(text):
+    for start, para in _blocks(_prepare(text)):
         # Every paragraph and table is checked for hand-typed numbers: one
         # that was never converted, with no {{ fact }} at all, is the most
         # likely to be stale (issue #36). Claim words need a fact.
-        table = _is_table(para)
+        b = _parse_block(start, para)
         # lint-ok accepts the claim words only; the rounding check still runs,
         # since a hedge accepted for one sentence says nothing about a rounded
         # "every" in another (issue #17).
         asserted: set[str] = set()
         literals: set[float] = set()
         quoted: list[tuple[set[str], set[str]]] = []   # (facts read, words quoted)
+        phrases: list[str] = []                        # quoted wording (issue #42)
         for tag in _ASSERT_TAG_RE.findall(para):
             refs = _refs(tag)
             asserted |= refs
-            quoted.append((refs, set(claim_words(" ".join(_quoted_wording(tag))))))
+            wording = _quoted_wording(tag)
+            quoted.append((refs, set(claim_words(" ".join(wording)))))
+            phrases.extend(wording)
             if numbers:
                 literals |= _assert_literals(tag)
 
-        exprs: list[str] = []
+        exprs = b.exprs
+        accept = _Acceptor(b.oks, [o for _, o in b.sentences], used)
+        table_numbers: list[Finding] = []
 
-        def mask(m):
-            exprs.append(m.group(1))
-            return _FACT.format(len(exprs) - 1)
-
-        masked = _EXPR_RE.sub(mask, para)
-        oks = _lint_oks(masked, start)
-        masked = _blank_out(masked, _STMT_RE)
-        masked = _blank_out(masked, _COMMENT_RE)
-        # A table is checked row by row, prose sentence by sentence.
-        sentences = masked.split("\n") if table else _SENTENCE_SPLIT_RE.split(masked)
-        starts, pos = [], 0
-        for sentence in sentences:
-            starts.append(masked.index(sentence, pos))
-            pos = starts[-1] + len(sentence)
-        accept = _Acceptor(oks, starts, used)
-
-        for n, (sentence, offset) in enumerate(zip(sentences, starts)):
-            line = start + masked.count("\n", 0, offset)
+        for n, (sentence, offset) in enumerate(b.sentences):
+            key = (b.start, n)
+            line = b.line_of(offset, sentence)
             ids = [int(i) for i in re.findall(r"\x00(\d+)\x00", sentence)]
-            prose = re.sub(r"\x00\d+\x00", " ", sentence)
+            prose = _FACT_ID_RE.sub(lambda m: " " * len(m.group(0)), sentence)
             original = re.sub(r"\x00(\d+)\x00", lambda m: "{{" + exprs[int(m.group(1))] + "}}", sentence)
             # Run without --numbers too, so a lint-ok kept for a number isn't
             # reported as accepting nothing.
-            for token, detail in _hand_typed_numbers(_HEADING_RE.sub(" ", prose), allowed, literals):
-                if not accept.accept(n, token) and numbers:
-                    findings.append(Finding(filename, line, "number", original, detail=detail))
-            if table or not ids:
+            for token, detail, s, e in _hand_typed_numbers(_blank_out(prose, _HEADING_RE), allowed,
+                                                           literals, matched_allowed):
+                if sidecar.accepts(key, s, e, used) or accept.accept(n, token):
+                    continue
+                if record is not None:
+                    record["numbers"].add((key, s, e, token))
+                if numbers:
+                    (table_numbers if b.table else findings).append(
+                        Finding(filename, line, "number", original, [token], detail=detail))
+            if b.table or not ids:
                 continue
             words = claim_words(prose)
 
@@ -297,17 +466,32 @@ def lint_text(
             # assert in the paragraph. The facts a word is about are those in
             # its clause, or the nearest one when its clause has none. A word
             # quoted in the message of an assert that reads one of the
-            # sentence's facts is covered wherever it sits.
+            # sentence's facts is covered wherever it sits, and so is a
+            # phrase quoted by an assert in the paragraph wherever it appears
+            # (issue #42), or by a [[claim]] in the sidecar (issue #48).
             refs = {i: _refs("{{" + exprs[i] + "}}") for i in ids}
             fact_ok = {i: bool(_WORD_FILTER_RE.search(exprs[i]) or refs[i] & asserted) for i in ids}
             facts = set().union(*refs.values())
             pinned = set().union(set(), *(w for r, w in quoted if r & facts))
-            uncovered = []
-            for word, about in _claims_and_facts(sentence):
-                if word in pinned or any(fact_ok[i] for i in about) or word in uncovered:
+            spans = [sp for sp in (find_quote(p, sentence) for p in phrases) if sp]
+            uncovered, where = [], {}
+            for word, about, s, e in _claims_and_facts(sentence):
+                if word in pinned or any(fact_ok[i] for i in about):
                     continue
-                uncovered.append(word)
+                if any(a <= s and e <= z for a, z in spans) or sidecar.covers(key, s, e):
+                    continue
+                if word in _JUXTAPOSITION and _juxtaposed(sentence, s, e):
+                    continue
+                if record is not None:
+                    record["uncovered"].add((key, s, e, word))
+                if sidecar.accepts(key, s, e, used):
+                    continue
+                where.setdefault(word, []).append((s, e))
+                if word not in uncovered:
+                    uncovered.append(word)
             unaccepted = [w for w in uncovered if not accept.accept(n, w)]
+            if record is not None:
+                record["unaccepted"].update((key, s, e, w) for w in unaccepted for s, e in where[w])
             if unaccepted:
                 findings.append(Finding(filename, line, "unchecked", original, unaccepted))
 
@@ -316,18 +500,54 @@ def lint_text(
                     detail = _rounding_issue(exprs[i], env, context)
                     if detail:
                         findings.append(Finding(filename, line, "rounding", original, words, detail))
+
+        if len(table_numbers) >= TABLE_SUMMARY_AT and not verbose:
+            cells = [f.words[0] for f in table_numbers]
+            shown = ", ".join(f"'{c}'" for c in cells[:4]) + (", ..." if len(cells) > 4 else "")
+            rows = len({f.line for f in table_numbers})
+            first = next(l for l in para.splitlines() if l.strip())
+            findings.append(Finding(
+                filename, b.start, "number", first, cells,
+                detail=f"table with {len(cells)} hand-typed number(s) in {rows} row(s) ({shown}): "
+                       "make it an include-csv of a results CSV (-v lists each cell)"))
+        else:
+            findings.extend(table_numbers)
     return findings
+
+
+def find_quote(phrase: str, sentence: str):
+    from .sidecar import find
+
+    return find(phrase, sentence)
 
 
 _FACT_ID_RE = re.compile(r"\x00(\d+)\x00")
 # Clause boundaries for deciding which facts a claim word is about (issue #33).
 _CLAUSE_RE = re.compile(r"[;:()\[\]—–]|,(?!\d{3})|\s-\s")
-_QUOTED_RE = re.compile(r"'([^']+)'|\u2018([^\u2019]+)\u2019|\u201c([^\u201d]+)\u201d|\\?\"([^\"]+)\\?\"")
+_QUOTED_RE = re.compile(r"'([^']+)'|‘([^’]+)’|“([^”]+)”|\\?\"([^\"]+)\\?\"")
+# "A vs B" between two facts sets them side by side; it claims no order
+# (issue #41).
+_JUXTAPOSITION = {"vs", "versus"}
+_BESIDE_FACT_RE = re.compile(r"^[\s\w%×.,/~-]{0,16}$")
 
 
-def _claims_and_facts(sentence: str) -> list[tuple[str, list[int]]]:
-    """Each claim word in a masked sentence with the facts it is about: the
-    fact ids in its clause, or else the nearest fact(s) in the sentence."""
+def _juxtaposed(sentence: str, start: int, end: int) -> bool:
+    """True when the word at ``start:end`` sits between two facts, with at
+    most a unit or a short label between it and each."""
+    before = [m for m in _FACT_ID_RE.finditer(sentence) if m.end() <= start]
+    after = [m for m in _FACT_ID_RE.finditer(sentence) if m.start() >= end]
+    if not before or not after:
+        return False
+    left = sentence[before[-1].end():start]
+    right = sentence[end:after[0].start()].lstrip(".")
+    return bool(_BESIDE_FACT_RE.match(left) and _BESIDE_FACT_RE.match(right)) \
+        and not _CLAUSE_RE.search(left + right)
+
+
+def _claims_and_facts(sentence: str) -> list[tuple[str, list[int], int, int]]:
+    """Each claim word in a masked sentence with the facts it is about (the
+    fact ids in its clause, or else the nearest fact(s) in the sentence) and
+    its offsets."""
     # Same-length masking, so offsets line up with the sentence.
     prose = _FACT_ID_RE.sub(lambda m: " " * len(m.group(0)), sentence)
     facts = [(m.start(), m.end(), int(m.group(1))) for m in _FACT_ID_RE.finditer(sentence)]
@@ -344,7 +564,7 @@ def _claims_and_facts(sentence: str) -> list[tuple[str, list[int]]]:
             dist = {i: max(start - m.end(), m.start() - end, 0) for start, end, i in facts}
             near = min(dist.values())
             about = [i for i, d in dist.items() if d == near]
-        out.append((word, about))
+        out.append((word, about, m.start(), m.end()))
     return out
 
 
@@ -372,6 +592,8 @@ def _rounding_issue(expr: str, env, context: dict) -> str | None:
         value = float(raw)
     except Exception:
         return None
+    if fact_type(raw) == "fraction" and re.search(r"\|\s*pct\b", expr):
+        value *= 100          # pct shows a fraction × 100 (issue #40)
     target = 100.0 if rendered.strip().rstrip("%").startswith("100") else 0.0
     if value == target:
         return None
@@ -382,7 +604,7 @@ def _rounding_issue(expr: str, env, context: dict) -> str | None:
 
 
 def provenance_findings(text: str, filename: str, context: dict,
-                        used: set | None = None) -> list[Finding]:
+                        used: set | None = None, sidecar: "Sidecar | None" = None) -> list[Finding]:
     """Paragraphs and tables that use facts from files produced by different
     versions of the same tool, per their provenance sidecars (issue #13).
     Any ``{# lint-ok #}`` in a paragraph accepts it as comparing versions on
@@ -400,8 +622,11 @@ def provenance_findings(text: str, filename: str, context: dict,
             if isinstance(context.get(ns), dict)
         }
         mixed = mixed_versions(namespaces, context)
+        lines = range(start, start + para.count("\n") + 1)
         if mixed and oks:
             used.update(ok.key for ok in oks)
+        elif mixed and sidecar is not None and sidecar.accepts_line(lines, used):
+            pass
         elif mixed:
             first = next(l for l in para.splitlines() if l.strip())
             findings.append(Finding(filename, start, "provenance", first,
@@ -447,7 +672,7 @@ def _percent_issue(expr: str, context: dict) -> str | None:
 
 
 def type_findings(text: str, filename: str, context: dict,
-                  used: set | None = None) -> list[Finding]:
+                  used: set | None = None, sidecar: "Sidecar | None" = None) -> list[Finding]:
     """``{{ fact }}%`` where the fact's type (or an untyped value below 1)
     means the printed percent is wrong by a factor of 100 (issue #12).
     ``{# lint-ok #}`` accepts its sentence, ``{# lint-ok(%) #}`` or
@@ -462,33 +687,52 @@ def type_findings(text: str, filename: str, context: dict,
         accept = _Acceptor(_lint_oks(para, start), starts, used)
         for m in _PERCENT_AFTER_RE.finditer(para):
             detail = _percent_issue(m.group(1), context)
+            line = start + para.count("\n", 0, m.start())
+            if detail and sidecar is not None and sidecar.accepts_line([line], used):
+                continue
             if detail and not accept.accept(_sentence_of(starts, m.start()), "%"):
-                line = start + para.count("\n", 0, m.start())
                 sentence = para.splitlines()[line - start]
                 findings.append(Finding(filename, line, "type", sentence, detail=detail))
     return findings
 
 
 def lint_files(paths: list[Path], project_root: Path, env=None, context=None,
-               numbers: bool = False, allowed_numbers=()) -> list[Finding]:
+               numbers: bool = False, allowed_numbers=(), verbose: bool = False,
+               matched_allowed: set | None = None) -> list[Finding]:
+    """Lint each section, with its claims sidecar if it has one (issue #48).
+    Allowed numbers that matched something are added to ``matched_allowed``."""
+    from .sidecar import load, sidecar_path
+
     findings: list[Finding] = []
     for path in paths:
         if not path.exists():
             continue
-        try:
-            name = str(path.relative_to(project_root))
-        except ValueError:
-            name = str(path)
+        name = _shown(path, project_root)
+        side = sidecar_path(path)
         text = path.read_text()
+        sidecar = Sidecar(load(side, _shown(side, project_root)), text, name)
+        findings.extend(sidecar.findings)
         used: set = set()
-        findings.extend(lint_text(text, name, env, context, numbers, allowed_numbers, used))
+        findings.extend(lint_text(text, name, env, context, numbers, allowed_numbers, used,
+                                  sidecar, verbose, matched_allowed))
         if context is not None:
-            findings.extend(provenance_findings(text, name, context, used))
-            findings.extend(type_findings(text, name, context, used))
+            findings.extend(provenance_findings(text, name, context, used, sidecar))
+            findings.extend(type_findings(text, name, context, used, sidecar))
             # Without facts the provenance and type checks don't run, so a
             # lint-ok kept for them would look unused.
             findings.extend(unused_lint_oks(text, name, used))
+            for e in sidecar.active_oks:
+                if e.key not in used:
+                    findings.append(Finding(e.file, e.line, "lint-ok", "; ".join(e.quotes),
+                                            detail=f"[[ok]] accepts nothing in {name}; remove it"))
     return findings
+
+
+def _shown(path: Path, project_root: Path) -> str:
+    try:
+        return str(path.relative_to(project_root))
+    except ValueError:
+        return str(path)
 
 
 def unused_lint_oks(text: str, filename: str, used: set) -> list[Finding]:
@@ -533,6 +777,10 @@ def unused_facts(
         seen.add(path)
         text = path.read_text()
         texts.append(text)
+        from .sidecar import sidecar_path
+        side = sidecar_path(path)
+        if side.exists():                 # facts read by claims-sidecar asserts (issue #48)
+            texts.append(side.read_text())
         for from_facts, name in _INCLUDE_RE.findall(text):
             base = facts_dir if from_facts else project_root
             queue.append(base / name.lstrip("/") if from_facts else base / name)
@@ -603,6 +851,7 @@ def line_ending_issues(facts_dir: Path, project_root: Path | None = None) -> lis
 def format_findings(findings: list[Finding]) -> str:
     if not findings:
         return "No unchecked claim words next to facts."
+    findings = sorted(findings, key=lambda f: (f.file, f.line))
     out = [f.format() for f in findings]
     unchecked = [f for f in findings if f.kind == "unchecked"]
     rounding = [f for f in findings if f.kind == "rounding"]
@@ -627,19 +876,26 @@ def format_findings(findings: list[Finding]) -> str:
     stale = [f for f in findings if f.kind == "lint-ok"]
     if stale:
         summary.append(f"{len(stale)} lint-ok(s) accept nothing")
+    quotes = [f for f in findings if f.kind == "claims"]
+    if quotes:
+        summary.append(f"{len(quotes)} claims-sidecar quote(s) don't match one sentence")
+    limits = [f for f in findings if f.kind == "limit"]
+    if limits:
+        summary.append(f"{len(limits)} word limit(s) not met")
     out.append("")
     out.append("; ".join(summary) + f" ({files} file(s)).")
     if unchecked:
         out.append(
-            "For each: use a word filter, add an {% assert %} for the condition the "
-            "wording depends on, or add {# lint-ok: reason #} to the sentence."
+            "For each: use a word filter, add an assert for the condition the wording "
+            "depends on (a [[claim]] in the section's claims sidecar, or an inline "
+            "{% assert %}), or accept it with an [[ok]] or {# lint-ok: reason #}."
         )
-    elif not numbers and not stale:
+    elif not numbers and not stale and not quotes and not limits:
         out.append("Add {# lint-ok: reason #} to a sentence to accept it as written.")
     if numbers:
         out.append(
             "For a hand-typed number: make it a fact, or if it is a design value "
             "(a titration level, the nominal 95%), add it to [lint] allowed_numbers "
-            "in paper.toml or add {# lint-ok: reason #}."
+            "in paper.toml, an [[ok]] in the claims sidecar, or {# lint-ok: reason #}."
         )
     return "\n".join(out)

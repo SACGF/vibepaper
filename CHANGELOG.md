@@ -2,6 +2,30 @@
 
 All notable changes to vibepaper are documented here.
 
+## [Unreleased]
+
+Upgrading from 0.12: give [`UPGRADE_PROMPT.md`](UPGRADE_PROMPT.md) to an agent in the paper's repo, with its "0.12 → next release" section. Most changes remove lint findings, so expect `vibepaper lint` to report some lint-oks as accepting nothing. Nothing renders differently.
+
+### Added
+
+- **Claims sidecars** ([#48](https://github.com/SACGF/vibepaper/issues/48)). A section's asserts and lint-oks can live beside it, in `paper/results.claims.toml`, instead of in the prose: `[[claim]]` (a `quote` of the wording and an `assert`), `[[ok]]` (a `quote` and a `reason`; `paragraph = true` for the paragraph) and `[[check]]` (an assert with no wording). A quote is matched against the source of one sentence, ignoring case, emphasis and wrapping, with `…` matching anything (facts included). A claim covers the claim words inside its quote. `build` and `check` evaluate sidecar asserts. `lint` reports a quote that no longer matches one sentence, because the wording changed and the claim needs re-checking; this fails `--check`. **`vibepaper claims extract`** moves a section's inline asserts and lint-oks into its sidecar, choosing a quote for each, and refuses to write if lint then finds more. **`vibepaper claims show`** prints the prose with each claim under its sentence. Inline asserts and lint-oks keep working and can be mixed with a sidecar. In four papers, extraction moved 31–148 asserts per paper without adding a lint finding, a rebuilt paper rendered byte-identical output, and cut the template markup in one results section from 60% to 44% of its characters.
+- **Journal word limits** ([#47](https://github.com/SACGF/vibepaper/issues/47)): a `[limits]` table in `paper.toml` (`abstract = { file = "paper/abstract.md", max_words = 250 }`, `files = [...]` for several sections, `each = "figure"` for each figure caption, `min_words`). Words are counted in the rendered text, leaving out headings, tables, code, citations and figure lines. `vibepaper lint` reports a limit that is not met (failing `--check`), and the new **`vibepaper wordcount`** prints each section's count and every limit.
+- **`pp` filter and `fraction_delta` type** ([#44](https://github.com/SACGF/vibepaper/issues/44)). A change in share now has a type: `fraction_delta` (-1 to 1) in a facts CSV or `FractionDelta` in a producer, and the difference of two `fraction` facts is one (two `percent` facts subtract to a `percent`). `{{ (late.rate - early.rate) | pp(1) }}` renders "-6.8 pp" (`sign=True` gives "+6.8 pp"). `pct`, `int`, `commas` and the other scale-sensitive filters refuse a `fraction_delta`. This replaces `{{ (d * 100) | dp(1) }} pp`, which the type checks couldn't see.
+- **Typed frozen facts, and frozen constants** ([#46](https://github.com/SACGF/vibepaper/issues/46)). `paper/frozen_facts.csv` takes an optional fourth `type` column. `vibepaper freeze literature.kit_lod --value 0.003 --type fraction --reason "Smith 2020"` records a value that no facts CSV has, such as one cited from another paper. A frozen `type` that disagrees with the facts CSV's is an error. Files without a type column are written back unchanged.
+- **Lint notes** ([#45](https://github.com/SACGF/vibepaper/issues/45)), which do not fail `--check`, for a check that could not run or a list that has gone stale: a facts namespace the sections use that has no CSV; no provenance sidecars at all (so the mixed-version check did nothing); with `--numbers`, `allowed_numbers` entries that match nothing; with `--unused`, `unused_ok` patterns that match no fact; no facts directory.
+- `vibepaper lint -v`. By default a table with four or more hand-typed numbers is now one finding ("table with 24 hand-typed number(s) in 8 row(s) ... make it an include-csv"), and `--unused` prints one line per facts file ([#45](https://github.com/SACGF/vibepaper/issues/45)). `-v` lists every cell and every fact, as before.
+
+### Changed
+
+- **A phrase quoted in an assert's message covers its claim words wherever it appears in the paragraph** ([#42](https://github.com/SACGF/vibepaper/issues/42)), whatever facts the sentence prints. So `{% assert r.fold >= 1.9, "'mean size doubled'" %}` covers "doubled" in a sentence that shows only the before and after values. In 0.12 that needed the assert to read a fact the sentence prints.
+- **Fewer claim words that make no claim** ([#41](https://github.com/SACGF/vibepaper/issues/41)): a word in a hyphenated compound ("3'-most", "left-most", "all-cause", "over-represented"), "no longer" / "no later", "of all" as a denominator, and "vs"/"versus" between two facts are no longer flagged. **Expect lint-oks that accepted these to be reported as accepting nothing**; remove them.
+
+### Fixed
+
+- The rounding check no longer flags a typed fraction of exactly 1.0 (or 0.0) shown with `pct` as "100%" ([#40](https://github.com/SACGF/vibepaper/issues/40)).
+- A lint finding gives the line of its sentence, not of an `{% assert %}` on the line above ([#42](https://github.com/SACGF/vibepaper/issues/42)).
+- A table followed by prose with no blank line between them is linted as a table and a paragraph ([#43](https://github.com/SACGF/vibepaper/issues/43)). It used to be one "sentence" holding the table and the prose, so a claim word in the prose was reported at the table's first line.
+
 ## [0.12.0] — 2026-11-11
 
 Upgrading from 0.11: give [`UPGRADE_PROMPT.md`](UPGRADE_PROMPT.md) to an agent in the paper's repo, with its "0.11 → 0.12" section. Lint coverage is now per claim word and `lint --numbers` checks every paragraph, so expect new `vibepaper lint` findings. Untyped integers and `{#-` comment lines may render differently (both fixes).

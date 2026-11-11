@@ -238,3 +238,73 @@ def test_unused_lint_ok_reported(tmp_path):
     assert "3 lint-ok(s) accept nothing" in format_findings(stale)
     # Without facts, the type and provenance checks don't run: no report.
     assert not [f for f in lint_files([sec], tmp_path) if f.kind == "lint-ok"]
+
+
+def test_claim_words_that_make_no_claim():
+    # Issue #41
+    assert claim_words("the 3'-most decile, left-most, all-cause, over-represented") == []
+    assert claim_words("a version that is no longer current, no later than May") == []
+    assert claim_words("12% of all citations") == []
+    assert claim_words("no more than 5, all of them") == ["no", "more than", "all"]
+    assert claim_words("a 3-fold rise") == ["-fold", "rise"]
+
+
+def test_vs_between_two_facts_is_not_a_claim():
+    # Issue #41: juxtaposition, not a judgement
+    assert lint_text("Sizes ({{ a.x }} Mb vs {{ a.y }} Mb) differ.\n", "x.md") == []
+    assert lint_text("A {{ a.x }} versus {{ a.y }}.\n", "x.md") == []
+    [f] = lint_text("A is faster vs B at {{ a.x }}.\n", "x.md")
+    assert f.words == ["faster", "vs"]
+
+
+def test_quoted_phrase_covers_sentence_rendering_inputs():
+    # Issue #42: the assert reads a derived fact, the sentence prints its inputs
+    text = (
+        "{% assert r.fold >= 1.9, \"'Mean size doubled'\" %}\n"
+        "Mean size doubled from {{ r.before | dp(1) }} to {{ r.after | dp(1) }}.\n"
+        "{% assert 3.6 <= r.ratio <= 4.4, \"'about a quarter'\" %}\n"
+        "B reached {{ r.b }} per second, about a quarter of A.\n"
+    )
+    assert lint_text(text, "x.md") == []
+
+
+def test_finding_reports_the_sentence_line_not_the_assert_line():
+    # Issue #42
+    text = "{% assert r.x > 0 %}\nB reached {{ r.b }}, about a quarter of A.\n"
+    [f] = lint_text(text, "x.md")
+    assert f.line == 2
+
+
+def test_table_followed_by_prose_is_linted_apart():
+    # Issue #43
+    text = (
+        "| a | b |\n|---|---|\n| {{ t.a }} | {{ t.b }} |\n"
+        "Sizes rose from {{ t.a }} to {{ t.b }}.\n"
+    )
+    [f] = lint_text(text, "x.md")
+    assert f.line == 4 and f.words == ["rose"]
+    assert f.sentence.startswith("Sizes rose")
+
+
+def test_lint_ok_line_above_table_still_accepts_it():
+    text = "{# lint-ok(93.7): cited #}\n| a |\n|---|\n| 93.7 |\nThen {{ x.y }} rows.\n"
+    assert lint_text(text, "x.md", numbers=True) == []
+
+
+def test_hand_typed_table_is_summarised():
+    # Issue #45
+    rows = "".join(f"| {i}.5 | {i}.25 |\n" for i in range(3))
+    text = "| a | b |\n|---|---|\n" + rows
+    [f] = lint_text(text, "x.md", numbers=True)
+    assert f.kind == "number" and f.line == 1 and "table with 6 hand-typed number(s) in 3 row(s)" in f.detail
+    assert len(lint_text(text, "x.md", numbers=True, verbose=True)) == 6
+
+
+def test_rounding_check_scales_a_typed_fraction():
+    # Issue #40: a fraction of exactly 1.0 shown with pct is 100%
+    from vibepaper.facts import Fraction
+    env = make_jinja_env(__import__("pathlib").Path("."))
+    text = "All agree: {{ r.agree | pct(0) }}.\n\nAll agree: {{ r.near | pct(0) }}.\n"
+    ctx = {"r": {"agree": Fraction(1.0), "near": Fraction(0.9996)}}
+    [f] = [f for f in lint_text(text, "a.md", env, ctx) if f.kind == "rounding"]
+    assert f.line == 3
