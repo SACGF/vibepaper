@@ -2,7 +2,9 @@
 
 All notable changes to vibepaper are documented here.
 
-## [Unreleased]
+## [0.12.0] — 2026-11-11
+
+Upgrading from 0.11: give [`UPGRADE_PROMPT.md`](UPGRADE_PROMPT.md) to an agent in the paper's repo, with its "0.11 → 0.12" section. Lint coverage is now per claim word and `lint --numbers` checks every paragraph, so expect new `vibepaper lint` findings. Untyped integers and `{#-` comment lines may render differently (both fixes).
 
 ### Added
 

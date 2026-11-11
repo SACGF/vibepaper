@@ -65,7 +65,7 @@ vibepaper diff --against <branch point>   # facts: only the changes you meant (t
 
 ---
 
-## 0.11 → next release
+## 0.11 → 0.12
 
 ### Expected render changes (Step 2)
 
